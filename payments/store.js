@@ -47,6 +47,12 @@ class PaymentStore {
     catch (error) { this.sql.exec('ROLLBACK'); throw error; }
   }
 
+  async transactionAsync(operation) {
+    this.sql.exec('BEGIN IMMEDIATE');
+    try { const result = await operation(); this.sql.exec('COMMIT'); return result; }
+    catch (error) { this.sql.exec('ROLLBACK'); throw error; }
+  }
+
   state() {
     const record = this.sql.prepare('SELECT payload FROM state WHERE id=1').get();
     return record ? JSON.parse(record.payload) : null;

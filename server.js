@@ -11,16 +11,14 @@ const { OutgoingLedger, SettlementWatcher, MINIMUM_WITHDRAWAL_USDT } = require('
 const { loadOperatorToken, authorized } = require('./payments/operator');
 const { OperatorPortal } = require('./payments/portal');
 
-const HOST = process.env.HOST || '127.0.0.1';
+const HOST = process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
 const PORT = Number(process.env.PORT || 4173);
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const DATA_DIR = process.env.TASKMALL_DATA_DIR || path.join(__dirname, 'data');
+const DATA_DIR = process.env.TASKMALL_DATA_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'db.json');
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14;
-const VIP_DURATION_DAYS = 365;
 const FREE_VIP_DAYS = 10;
 const WITHDRAWAL_FEE_RATE = 0.1;
-const NET_RECOVERY_DAYS = 11;
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN || '';
 const TEST_WALLET = process.env.NODE_ENV === 'test' && process.env.TASKMALL_TEST_WALLET === '1'
@@ -28,8 +26,10 @@ const TEST_WALLET = process.env.NODE_ENV === 'test' && process.env.TASKMALL_TEST
 if (process.env.TASKMALL_TEST_WALLET === '1' && !TEST_WALLET) throw new Error('Test wallet requires an isolated test data directory and NODE_ENV=test.');
 if (IS_PRODUCTION && (!PUBLIC_ORIGIN || new URL(PUBLIC_ORIGIN).protocol !== 'https:')) throw new Error('Production requires an HTTPS PUBLIC_ORIGIN.');
 const USE_SQLITE = !TEST_WALLET && process.env.TASKMALL_SQLITE === '1';
+const USE_MYSQL = !TEST_WALLET && (process.env.NODE_ENV !== 'test' || process.env.TASKMALL_MYSQL_TEST === '1')
+  && Boolean(process.env.MYSQL_URL || process.env.DATABASE_URL);
 const TRON_DEPOSITS = !TEST_WALLET && process.env.TRON_DEPOSITS_ENABLED === '1';
-if (TRON_DEPOSITS && !USE_SQLITE) throw new Error('TRON deposits require transactional SQLite storage.');
+if (TRON_DEPOSITS && !USE_SQLITE && !USE_MYSQL) throw new Error('TRON deposits require transactional database storage.');
 if (IS_PRODUCTION && process.env.TRON_AUTO_WALLET === '1') throw new Error('Provision the protected wallet locally, then deploy only its verified public configuration with TRON_AUTO_WALLET=0.');
 const WALLET_FILE = process.env.TRON_WALLET_PUBLIC_FILE || path.join(__dirname, 'config', 'tron-wallet-public.json');
 const TREASURY = process.env.TRON_TREASURY_ADDRESS || require('./config/tron-payment-setup.json').treasuryAddress;
@@ -49,24 +49,7 @@ function exclusive(operation) {
 const sessions = new Map();
 const rateLimits = new Map();
 
-const vipPlans = [
-  { id: 'free', level: 0, name: 'Free VIP', price: 0, dailyTasks: 1, maxReward: 0.3, teamRate: 0, color: '#64748b', durationDays: FREE_VIP_DAYS },
-  { id: 'vip1', level: 1, name: 'VIP 1', price: 30, dailyTasks: 1, teamRate: 3, color: '#15966c' },
-  { id: 'vip2', level: 2, name: 'VIP 2', price: 100, dailyTasks: 1, teamRate: 4, color: '#145cf6' },
-  { id: 'vip3', level: 3, name: 'VIP 3', price: 300, dailyTasks: 1, teamRate: 5, color: '#8a56e8' },
-  { id: 'vip4', level: 4, name: 'VIP 4', price: 800, dailyTasks: 1, teamRate: 6, color: '#d97706' },
-  { id: 'vip5', level: 5, name: 'VIP 5', price: 1500, dailyTasks: 1, teamRate: 7, color: '#dc2626' },
-  { id: 'vip6', level: 6, name: 'VIP 6', price: 3000, dailyTasks: 1, teamRate: 8, color: '#0891b2' },
-  { id: 'vip7', level: 7, name: 'VIP 7', price: 5000, dailyTasks: 1, teamRate: 9, color: '#4f46e5' },
-  { id: 'vip8', level: 8, name: 'VIP 8', price: 8000, dailyTasks: 1, teamRate: 10, color: '#be185d' },
-  { id: 'vip9', level: 9, name: 'VIP 9', price: 12000, dailyTasks: 1, teamRate: 12, color: '#0f766e' },
-  { id: 'vip10', level: 10, name: 'VIP 10', price: 18000, dailyTasks: 1, teamRate: 14, color: '#7c3aed' },
-  { id: 'vip11', level: 11, name: 'VIP 11', price: 25000, dailyTasks: 1, teamRate: 15, color: '#b45309' }
-].map(plan => ({
-  ...plan,
-  durationDays: plan.durationDays || VIP_DURATION_DAYS,
-  maxReward: plan.price ? Math.round(plan.price / (NET_RECOVERY_DAYS * (1 - WITHDRAWAL_FEE_RATE)) * 100) / 100 : plan.maxReward
-}));
+const { vipPlans } = require('./platform-catalog');
 
 const paymentNetworks = {
   trc20: { label: 'USDT TRC20', address: TEST_WALLET ? 'TEST_ONLY_NOT_A_PAYMENT_ADDRESS' : '' },
@@ -223,11 +206,20 @@ function cleanUser(user) {
 
 async function loadDatabase() {
   await fsp.mkdir(DATA_DIR, { recursive: true });
-  if (USE_SQLITE) {
-    const { PaymentStore } = require('./payments/store');
-    paymentStore = new PaymentStore(DATA_DIR);
-    let saved = paymentStore.state();
-    if (!saved) {
+  if (USE_SQLITE || USE_MYSQL) {
+    if (USE_MYSQL) {
+      const { MysqlPaymentStore } = require('./payments/mysql-store');
+      paymentStore = await MysqlPaymentStore.open();
+      await paymentStore.catalog(vipPlans, seedTasks);
+    } else {
+      const { PaymentStore } = require('./payments/store');
+      paymentStore = new PaymentStore(DATA_DIR);
+    }
+    let saved = await paymentStore.state();
+    if (!saved && USE_MYSQL && (fs.existsSync(DATA_FILE) || fs.existsSync(path.join(DATA_DIR, 'payments.sqlite')))) {
+      throw new Error('Existing local database requires an explicit reconciled MySQL migration. Automatic import is disabled.');
+    }
+    if (!saved && !USE_MYSQL) {
       try {
         const raw = await fsp.readFile(DATA_FILE, 'utf8');
         saved = JSON.parse(raw.replace(/^\uFEFF/, ''));
@@ -236,7 +228,7 @@ async function loadDatabase() {
     if (saved && !Array.isArray(saved.users)) throw new Error('Database users must be an array.');
     db.users = saved?.users || [];
     for (const user of db.users) ensureUserShape(user);
-    paymentStore.save(db, 'initial-import-or-migration');
+    await paymentStore.save(db, 'initial-import-or-migration');
     outgoingLedger = new OutgoingLedger(paymentStore, TREASURY);
     if (process.env.TASKMALL_OPERATOR_ENABLED === '1') operatorToken = await loadOperatorToken(OPERATOR_FILE, true);
     if (TRON_DEPOSITS) {
@@ -248,10 +240,10 @@ async function loadDatabase() {
       depositWatcher = new DepositWatcher({ store: paymentStore, walletFile: WALLET_FILE,
         treasury: TREASURY, apiKey: process.env.TRONGRID_API_KEY, exclusive,
         interval: process.env.NODE_ENV === 'test' ? Number(process.env.TRON_TEST_POLL_MS || 30_000) : 30_000,
-        credit(event) {
+        async credit(event) {
           if (!storageHealthy) throw new Error('Storage is unavailable.');
           const next = structuredClone(db);
-          const credited = paymentStore.credit(event, next, (state, userId, transfer) => {
+          const credited = await paymentStore.credit(event, next, (state, userId, transfer) => {
             const user = state.users.find(item => item.id === userId);
             if (!user) throw new Error('Deposit account was not found.');
             user.lockedBalance = usdtAmount(units(user.lockedBalance) + BigInt(transfer.units));
@@ -285,10 +277,10 @@ async function loadDatabase() {
   }
 }
 
-function saveDatabase() {
+async function saveDatabase() {
   if (paymentStore) {
-    try { paymentStore.save(db); return Promise.resolve(); }
-    catch (error) { storageHealthy = false; return Promise.reject(error); }
+    try { await paymentStore.save(db); return; }
+    catch (error) { storageHealthy = false; throw error; }
   }
   const payload = JSON.stringify(db, null, 2);
   writeQueue = writeQueue.then(async () => {
@@ -325,9 +317,10 @@ function parseCookies(req) {
   return cookies;
 }
 
-function createSession(userId) {
+async function createSession(userId) {
   const token = crypto.randomBytes(32).toString('base64url');
-  sessions.set(token, { userId, expiresAt: Date.now() + SESSION_TTL_MS });
+  if (USE_MYSQL) await paymentStore.createSession(token, userId, Date.now() + SESSION_TTL_MS);
+  else sessions.set(token, { userId, expiresAt: Date.now() + SESSION_TTL_MS });
   return token;
 }
 
@@ -339,12 +332,12 @@ function clearSessionCookie() {
   return `taskmall_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${IS_PRODUCTION ? '; Secure' : ''}`;
 }
 
-function currentUser(req) {
+async function currentUser(req) {
   if (!storageHealthy) return null;
   const cookies = parseCookies(req);
   const token = cookies.taskmall_session || cookies.taskora_session;
   if (!token) return null;
-  const session = sessions.get(token);
+  const session = USE_MYSQL ? await paymentStore.session(token, SESSION_TTL_MS) : sessions.get(token);
   if (!session || session.expiresAt < Date.now()) {
     if (session) sessions.delete(token);
     return null;
@@ -355,8 +348,8 @@ function currentUser(req) {
   return user;
 }
 
-function requireUser(req, res) {
-  const user = currentUser(req);
+async function requireUser(req, res) {
+  const user = await currentUser(req);
   if (!user) json(res, 401, { error: 'AUTH_REQUIRED' });
   return user;
 }
@@ -544,16 +537,16 @@ async function handleApi(req, res, url) {
       const ticket = operatorPortal.sessions.issue(req);
       return json(res, ticket ? 200 : 403, ticket ? { ticket } : { error: 'OPERATOR_AUTH_REQUIRED' });
     }
-    if (req.method === 'GET' && url.pathname === '/api/operator/withdrawals') return json(res, 200, { withdrawals: outgoingLedger.withdrawals() });
+    if (req.method === 'GET' && url.pathname === '/api/operator/withdrawals') return json(res, 200, { withdrawals: await outgoingLedger.withdrawals() });
     if (req.method === 'GET' && url.pathname === '/api/operator/collections') return json(res, 200, { treasury: TREASURY,
-      feeLimitSun: require('./payments/transactions').boundedSun(Number(process.env.TRON_COLLECTION_FEE_LIMIT_SUN || 100_000_000), 'fee limit'), collections: outgoingLedger.collections() });
+      feeLimitSun: require('./payments/transactions').boundedSun(Number(process.env.TRON_COLLECTION_FEE_LIMIT_SUN || 100_000_000), 'fee limit'), collections: await outgoingLedger.collections() });
     if (req.method === 'POST' && url.pathname === '/api/operator/collections/plan') return json(res, 200, { treasury: TREASURY,
-      feeLimitSun: require('./payments/transactions').boundedSun(Number(process.env.TRON_COLLECTION_FEE_LIMIT_SUN || 100_000_000), 'fee limit'), collections: outgoingLedger.planCollections() });
+      feeLimitSun: require('./payments/transactions').boundedSun(Number(process.env.TRON_COLLECTION_FEE_LIMIT_SUN || 100_000_000), 'fee limit'), collections: await outgoingLedger.planCollections() });
     const release = url.pathname.match(/^\/api\/operator\/(withdrawals|collections)\/([a-f0-9-]{36})\/release-failed$/);
     if (req.method === 'POST' && release) {
       if (!req.failureProof) return json(res, 503, { error: 'CHAIN_FAILURE_NOT_VERIFIED' });
       const next = structuredClone(db);
-      outgoingLedger.releaseFailed(next, release[1] === 'withdrawals' ? 'withdrawal' : 'collection', release[2], req.failureProof.info, req.failureProof.height);
+      await outgoingLedger.releaseFailed(next, release[1] === 'withdrawals' ? 'withdrawal' : 'collection', release[2], req.failureProof.info, req.failureProof.height);
       db = next;
       return json(res, 200, { ok: true });
     }
@@ -561,8 +554,8 @@ async function handleApi(req, res, url) {
     if (req.method === 'POST' && decision) {
       const next = structuredClone(db);
       const result = decision[2] === 'record'
-        ? outgoingLedger.submitWithdrawal(next, decision[1], String(req.taskmallBody.txid || '').trim().toLowerCase())
-        : outgoingLedger.decide(next, decision[1], decision[2]);
+        ? await outgoingLedger.submitWithdrawal(next, decision[1], String(req.taskmallBody.txid || '').trim().toLowerCase())
+        : await outgoingLedger.decide(next, decision[1], decision[2]);
       db = next;
       return json(res, 200, { withdrawal: result.record || result });
     }
@@ -570,7 +563,7 @@ async function handleApi(req, res, url) {
     if (req.method === 'POST' && collection) {
       const { validateTransfer, boundedSun } = require('./payments/transactions');
       const limit = boundedSun(Number(process.env.TRON_COLLECTION_FEE_LIMIT_SUN || 100_000_000), 'fee limit');
-      const record = outgoingLedger.recordCollection(collection[1], req.taskmallBody.transaction, (transaction, job) => {
+      const record = await outgoingLedger.recordCollection(collection[1], req.taskmallBody.transaction, (transaction, job) => {
         if (transaction?.raw_data?.timestamp < job.created_at - 60_000) throw Object.assign(new Error('INVALID_TRANSACTION_TIME'), { status: 400 });
         try { validateTransfer(transaction, { from: job.address, to: TREASURY, value: job.amount_units, feeLimit: limit }); }
         catch { throw Object.assign(new Error('INVALID_COLLECTION_TRANSACTION'), { status: 400 }); }
@@ -580,6 +573,7 @@ async function handleApi(req, res, url) {
     return json(res, 404, { error: 'NOT_FOUND' });
   }
   if (req.method === 'GET' && url.pathname === '/api/health') {
+    if (USE_MYSQL && !paymentStore?.healthy) storageHealthy = false;
     return json(res, storageHealthy ? 200 : 503, { ok: storageHealthy, service: 'taskmall', paymentsAvailable: TEST_WALLET || Boolean(depositWatcher?.ready()),
       ...(TRON_DEPOSITS ? { deposits: depositWatcher?.status || 'starting', lastDepositScan: depositWatcher?.lastSuccess || null } : {}), time: new Date().toISOString() });
   }
@@ -594,26 +588,26 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/wallet/deposit-address') {
-    const user = requireUser(req, res);
+    const user = await requireUser(req, res);
     if (!user) return;
     if (!allowRequest(req, 'deposit-address', 20, 60_000)) return json(res, 429, { error: 'TOO_MANY_REQUESTS' });
     if (!storageHealthy || !depositWatcher?.ready()) return json(res, 503, { error: 'DEPOSITS_UNAVAILABLE' });
-    const record = depositWatcher.allocate(user.id);
+    const record = await depositWatcher.allocate(user.id);
     const qr = await require('qrcode').toDataURL(record.address, { width: 240, margin: 4, errorCorrectionLevel: 'M' });
     return json(res, 200, { address: record.address, network: 'trc20', asset: 'USDT', decimals: 6,
       qr, explorer: `https://tronscan.org/#/address/${record.address}` });
   }
 
   if (req.method === 'GET' && url.pathname === '/api/wallet/deposits') {
-    const user = requireUser(req, res);
+    const user = await requireUser(req, res);
     if (!user) return;
-    return json(res, 200, { deposits: paymentStore?.deposits(user.id) || [] });
+    return json(res, 200, { deposits: await paymentStore?.deposits(user.id) || [] });
   }
 
   if (req.method === 'GET' && url.pathname === '/api/wallet/withdrawals') {
-    const user = requireUser(req, res);
+    const user = await requireUser(req, res);
     if (!user) return;
-    return json(res, 200, { withdrawals: (outgoingLedger?.withdrawals(user.id) || []).map(item => ({ id: item.id,
+    return json(res, 200, { withdrawals: (await outgoingLedger?.withdrawals(user.id) || []).map(item => ({ id: item.id,
       destination: item.destination, amount: usdtAmount(item.gross_units), fee: usdtAmount(item.fee_units),
       netAmount: usdtAmount(item.net_units), status: item.status, txid: item.txid, createdAt: new Date(item.created_at).toISOString() })) });
   }
@@ -657,7 +651,7 @@ async function handleApi(req, res, url) {
     addActivity(user, { type: 'welcome', amount: 0 });
     db.users.push(user);
     await saveDatabase();
-    const token = createSession(user.id);
+    const token = await createSession(user.id);
     return json(res, 201, { user: cleanUser(user) }, { 'Set-Cookie': sessionCookie(token) });
   }
 
@@ -676,50 +670,53 @@ async function handleApi(req, res, url) {
     }
     if (!matches) return json(res, 401, { error: 'INVALID_CREDENTIALS' });
     ensureUserShape(user);
-    const token = createSession(user.id);
+    const token = await createSession(user.id);
     return json(res, 200, { user: cleanUser(user) }, { 'Set-Cookie': sessionCookie(token) });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/auth/logout') {
     const cookies = parseCookies(req);
     const token = cookies.taskmall_session || cookies.taskora_session;
-    if (token) sessions.delete(token);
+    if (token) {
+      if (USE_MYSQL) await paymentStore.revokeSession(token);
+      else sessions.delete(token);
+    }
     return json(res, 200, { ok: true }, { 'Set-Cookie': clearSessionCookie() });
   }
 
   if (req.method === 'GET' && url.pathname === '/api/me') {
-    const user = requireUser(req, res);
+    const user = await requireUser(req, res);
     if (!user) return;
     return json(res, 200, { user: cleanUser(user) });
   }
 
   if (req.method === 'GET' && url.pathname === '/api/tasks') {
-    const user = requireUser(req, res);
+    const user = await requireUser(req, res);
     if (!user) return;
     return json(res, 200, { tasks: db.tasks.map((task) => taskForClient(task, user)) });
   }
 
   if (req.method === 'GET' && url.pathname === '/api/vips') {
-    const user = requireUser(req, res);
+    const user = await requireUser(req, res);
     if (!user) return;
     return json(res, 200, { vips: vipListForUser(user) });
   }
 
   if (req.method === 'GET' && url.pathname === '/api/team') {
-    const user = requireUser(req, res);
+    const user = await requireUser(req, res);
     if (!user) return;
     return json(res, 200, { team: teamForUser(user) });
   }
 
   if (req.method === 'GET' && url.pathname === '/api/activity') {
-    const user = requireUser(req, res);
+    const user = await requireUser(req, res);
     if (!user) return;
     return json(res, 200, { activities: user.activities || [] });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/wallet/deposit') {
     if (!allowRequest(req, 'deposit', 30, 60_000)) return json(res, 429, { error: 'TOO_MANY_REQUESTS' });
-    const user = requireUser(req, res);
+    const user = await requireUser(req, res);
     if (!user) return;
     if (!TEST_WALLET) return json(res, 503, { error: 'PAYMENTS_UNAVAILABLE' });
     const body = await readBody(req);
@@ -735,7 +732,7 @@ async function handleApi(req, res, url) {
 
   if (req.method === 'POST' && url.pathname === '/api/wallet/transfer') {
     if (!allowRequest(req, 'transfer', 30, 60_000)) return json(res, 429, { error: 'TOO_MANY_REQUESTS' });
-    const user = requireUser(req, res);
+    const user = await requireUser(req, res);
     if (!user) return;
     const body = await readBody(req);
     const amount = parseAmount(body.amount, 1, 100_000);
@@ -750,7 +747,7 @@ async function handleApi(req, res, url) {
 
   if (req.method === 'POST' && url.pathname === '/api/wallet/withdraw') {
     if (!allowRequest(req, 'withdraw', 20, 60_000)) return json(res, 429, { error: 'TOO_MANY_REQUESTS' });
-    const user = requireUser(req, res);
+    const user = await requireUser(req, res);
     if (!user) return;
     const body = await readBody(req);
     if (!TEST_WALLET) {
@@ -760,7 +757,7 @@ async function handleApi(req, res, url) {
       const value = parseExactUsdt(body.amount, 0, 100_000);
       if (!value) return json(res, 400, { error: 'INVALID_AMOUNT' });
       const next = structuredClone(db);
-      const result = outgoingLedger.request(next, user.id, { key: body.requestKey, destination: String(body.wallet || '').trim(), gross: value });
+      const result = await outgoingLedger.request(next, user.id, { key: body.requestKey, destination: String(body.wallet || '').trim(), gross: value });
       if (result.changed) db = next;
       return json(res, result.changed ? 201 : 200, { user: cleanUser(db.users.find(item => item.id === user.id)), activities: db.users.find(item => item.id === user.id).activities,
         withdrawal: { id: result.record.id, status: result.record.status } });
@@ -783,7 +780,7 @@ async function handleApi(req, res, url) {
   const vipMatch = url.pathname.match(/^\/api\/vips\/([a-z0-9-]+)\/buy$/);
   if (req.method === 'POST' && vipMatch) {
     if (!allowRequest(req, 'buy-vip', 30, 60_000)) return json(res, 429, { error: 'TOO_MANY_REQUESTS' });
-    const user = requireUser(req, res);
+    const user = await requireUser(req, res);
     if (!user) return;
     const plan = planById(vipMatch[1]);
     if (!plan || plan.id === 'free') return json(res, 404, { error: 'VIP_NOT_FOUND' });
@@ -803,7 +800,7 @@ async function handleApi(req, res, url) {
   const completionMatch = url.pathname.match(/^\/api\/tasks\/([a-z0-9-]+)\/complete$/);
   if (req.method === 'POST' && completionMatch) {
     if (!allowRequest(req, 'complete', 30, 60_000)) return json(res, 429, { error: 'TOO_MANY_REQUESTS' });
-    const user = requireUser(req, res);
+    const user = await requireUser(req, res);
     if (!user) return;
     const task = db.tasks.find((item) => item.id === completionMatch[1]);
     if (!task) return json(res, 404, { error: 'TASK_NOT_FOUND' });
@@ -831,7 +828,7 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === 'PATCH' && url.pathname === '/api/profile') {
-    const user = requireUser(req, res);
+    const user = await requireUser(req, res);
     if (!user) return;
     const body = await readBody(req);
     const name = String(body.name || '').trim().replace(/\s+/g, ' ');
@@ -906,8 +903,8 @@ const server = http.createServer(async (req, res) => {
       if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) req.taskmallBody = await readBody(req);
       const failedRelease = url.pathname.match(/^\/api\/operator\/(withdrawals|collections)\/([a-f0-9-]{36})\/release-failed$/);
       if (req.method === 'POST' && failedRelease && authorized(req, operatorToken) && depositWatcher) {
-        const row = failedRelease[1] === 'withdrawals' ? outgoingLedger.withdrawal(failedRelease[2])
-          : outgoingLedger.collections().find(item => item.id === failedRelease[2]);
+        const row = failedRelease[1] === 'withdrawals' ? await outgoingLedger.withdrawal(failedRelease[2])
+          : (await outgoingLedger.collections()).find(item => item.id === failedRelease[2]);
         if (row?.txid) req.failureProof = { info: await depositWatcher.client.receipt(row.txid), height: await depositWatcher.client.solidHeight() };
       }
       await exclusive(() => handleApi(req, res, url));
@@ -916,7 +913,8 @@ const server = http.createServer(async (req, res) => {
     else json(res, 405, { error: 'METHOD_NOT_ALLOWED' });
   } catch (error) {
     if (String(error.code || '').startsWith('ERR_SQLITE') || String(error.code || '').startsWith('SQLITE_')) storageHealthy = false;
-    console.error(error);
+    if (USE_MYSQL) { if (!error.status) storageHealthy = false; console.error('Request failed:', error.status ? error.message : 'Database or internal operation failed.'); }
+    else console.error(error);
     if (!res.headersSent) json(res, error.status || 500, { error: error.status ? error.message : 'SERVER_ERROR' });
   }
 });
@@ -927,22 +925,23 @@ setInterval(() => {
   const now = Date.now();
   for (const [token, session] of sessions) if (session.expiresAt <= now) sessions.delete(token);
   for (const [key, limit] of rateLimits) if (limit.resetAt <= now) rateLimits.delete(key);
+  if (USE_MYSQL && paymentStore?.healthy) exclusive(() => paymentStore.pruneSessions()).catch(() => { storageHealthy = false; });
 }, 60_000).unref();
 
 loadDatabase().then(() => {
   server.listen(PORT, HOST, () => {
     console.log(`TaskMall is running at http://${HOST}:${server.address().port}`);
   });
-}).catch(error => {
-  console.error('Startup failed; stored data was preserved:', error.message);
-  paymentStore?.close();
+}).catch(async error => {
+  console.error('Startup failed; stored data was preserved:', USE_MYSQL ? `MySQL configuration or storage validation failed (${error.code || 'VALIDATION'}).` : error.message);
+  await paymentStore?.close();
   process.exitCode = 1;
 });
 
 function shutdown() {
   depositWatcher?.stop();
   settlementWatcher?.stop();
-  server.close(() => { paymentStore?.close(); process.exit(0); });
+  server.close(async () => { await exclusive(() => paymentStore?.close()); process.exit(0); });
   setTimeout(() => process.exit(1), 3000).unref();
 }
 process.on('SIGINT', shutdown);

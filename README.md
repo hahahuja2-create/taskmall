@@ -68,6 +68,13 @@ Production mode requires `NODE_ENV=production` and an HTTPS `PUBLIC_ORIGIN`. TLS
 
 ## Data
 
+Railway MySQL storage is available through `MYSQL_URL`. It persists normalized
+accounts, wallets, memberships, tasks, sessions and the payment ledger in
+transactional InnoDB tables. See [MYSQL_DEPLOYMENT.md](MYSQL_DEPLOYMENT.md) for
+migrations, private Railway connection variables, the single-writer limit,
+credential rotation, and the required financial cutover. Existing local SQLite
+data is not silently imported or replaced.
+
 `TASKMALL_DATA_DIR` selects the data directory. With `TASKMALL_SQLITE=1`, application state, deposit mappings, transfer identities and balance journals are stored in `payments.sqlite` using WAL and FULL synchronous transactions. Existing `db.json` is imported once and left unchanged; it is no longer the current state in SQL mode. Back up and restore SQLite consistently, including its active WAL, rather than using an outdated JSON snapshot. Only one application writer process may run against that directory. Imported balances still require reconciliation with real funds.
 
 Without the SQLite flag, previous JSON storage is retained for compatibility and isolated tests; it cannot enable real deposits. Invalid stored data stops startup instead of being overwritten. A persistence failure stops further mutation requests.

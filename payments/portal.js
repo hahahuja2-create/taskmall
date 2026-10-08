@@ -43,13 +43,13 @@ class OperatorPortal {
     }
     if (!this.getLedger() || !this.isHealthy()) return json(res, 503, { error: 'STORAGE_UNAVAILABLE' });
     if (req.method === 'GET' && url.pathname === '/operator/api/state') {
-      return this.exclusive(() => json(res, 200, { treasury: this.treasury, contract: USDT_CONTRACT,
+      return this.exclusive(async () => json(res, 200, { treasury: this.treasury, contract: USDT_CONTRACT,
         sendingEnabled: this.isSendingEnabled(), csrf: session.csrf, expiresAt: session.expiresAt,
-        withdrawals: this.getLedger().withdrawals().map(row => {
-          const intent = this.getLedger().withdrawalIntent(row.id);
+        withdrawals: await Promise.all((await this.getLedger().withdrawals()).map(async row => {
+          const intent = await this.getLedger().withdrawalIntent(row.id);
           return { ...row, prepared: Boolean(intent), preparedFeeLimitSun: intent?.fee_limit || null,
-            signed: Boolean(this.getLedger().signedWithdrawal(row.id)) };
-        }) }));
+            signed: Boolean(await this.getLedger().signedWithdrawal(row.id)) };
+        })) }));
     }
     if (mutation && url.pathname === '/operator/api/logout') {
       this.sessions.revoke(req);
@@ -60,9 +60,9 @@ class OperatorPortal {
     const body = await readBody(req);
     const [, id, action] = match;
     if (['approve', 'reject'].includes(action)) {
-      return this.exclusive(() => {
+      return this.exclusive(async () => {
         const next = structuredClone(this.getState());
-        const result = this.getLedger().decide(next, id, action);
+        const result = await this.getLedger().decide(next, id, action);
         this.commitState(next);
         json(res, 200, { withdrawal: result.record });
       });

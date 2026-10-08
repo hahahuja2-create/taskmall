@@ -73,21 +73,21 @@ function unsigned({ from, to, value, kind = 'usdt', feeLimit = 1_000_000 }) {
 test('withdrawal reservation is exact, idempotent and rolls back malformed requests', async t => {
   const { ledger, store, app } = await fixture(t);
   const request = { key: crypto.randomUUID(), destination, gross: '10.000001' };
-  const created = ledger.request(app, 'a', request);
+  const created = await ledger.request(app, 'a', request);
   assert.equal(created.record.fee_units, '1000000');
   assert.equal(created.record.net_units, '9000001');
   assert.equal(app.users[0].withdrawBalance, 89.999999);
   assert.equal(app.users[0].reservedBalance, 10.000001);
-  assert.equal(ledger.request(app, 'a', request).changed, false);
-  assert.throws(() => ledger.request(structuredClone(app), 'a', { ...request, gross: '11' }), /CONFLICT/);
-  assert.throws(() => ledger.request(structuredClone(app), 'a', { ...request, key: crypto.randomUUID(), destination: 'not-a-tron-address' }), /INVALID_WALLET/);
-  assert.throws(() => ledger.request(structuredClone(app), 'a', { ...request, key: crypto.randomUUID(), gross: '91' }), /INSUFFICIENT/);
-  assert.equal(ledger.withdrawals('a').length, 1);
-  const rejected = ledger.decide(app, created.record.id, 'reject');
+  assert.equal((await ledger.request(app, 'a', request)).changed, false);
+  await assert.rejects(() => ledger.request(structuredClone(app), 'a', { ...request, gross: '11' }), /CONFLICT/);
+  await assert.rejects(() => ledger.request(structuredClone(app), 'a', { ...request, key: crypto.randomUUID(), destination: 'not-a-tron-address' }), /INVALID_WALLET/);
+  await assert.rejects(() => ledger.request(structuredClone(app), 'a', { ...request, key: crypto.randomUUID(), gross: '91' }), /INSUFFICIENT/);
+  assert.equal((await ledger.withdrawals('a')).length, 1);
+  const rejected = await ledger.decide(app, created.record.id, 'reject');
   assert.equal(rejected.record.status, 'rejected');
   assert.equal(app.users[0].withdrawBalance, 100);
   assert.equal(app.users[0].reservedBalance, 0);
-  assert.equal(ledger.decide(app, created.record.id, 'reject').changed, false);
+  assert.equal((await ledger.decide(app, created.record.id, 'reject')).changed, false);
   const batches = new Map();
   for (const row of store.sql.prepare('SELECT batch,delta_units FROM journal').all()) batches.set(row.batch, (batches.get(row.batch) || 0n) + BigInt(row.delta_units));
   assert.ok([...batches.values()].every(value => value === 0n));
@@ -98,13 +98,13 @@ test('the 10 USDT minimum is enforced without reserving rejected amounts', async
   const before = structuredClone(app);
   const journalCount = store.sql.prepare('SELECT COUNT(*) AS count FROM journal').get().count;
   for (const gross of ['5', '9.99', '9.999999']) {
-    assert.throws(() => ledger.request(app, 'a', { key: crypto.randomUUID(), destination, gross }), /WITHDRAWAL_BELOW_MINIMUM/);
+    await assert.rejects(() => ledger.request(app, 'a', { key: crypto.randomUUID(), destination, gross }), /WITHDRAWAL_BELOW_MINIMUM/);
     assert.deepEqual(app, before);
     assert.deepEqual(store.state().users, before.users);
-    assert.equal(ledger.withdrawals('a').length, 0);
+    assert.equal((await ledger.withdrawals('a')).length, 0);
     assert.equal(store.sql.prepare('SELECT COUNT(*) AS count FROM journal').get().count, journalCount);
   }
-  const row = ledger.request(app, 'a', { key: crypto.randomUUID(), destination, gross: '10' }).record;
+  const row = (await ledger.request(app, 'a', { key: crypto.randomUUID(), destination, gross: '10' })).record;
   assert.equal(row.gross_units, '10000000');
   assert.equal(row.net_units, '9000000');
   assert.equal(app.users[0].reservedBalance, 10);
@@ -112,49 +112,49 @@ test('the 10 USDT minimum is enforced without reserving rejected amounts', async
 
 test('payouts settle only the exact treasury transfer and cannot reuse a transaction', async t => {
   const { ledger, store, app } = await fixture(t);
-  const row = ledger.request(app, 'a', { key: crypto.randomUUID(), destination, gross: '10' }).record;
-  assert.throws(() => ledger.submitWithdrawal(app, row.id, '1'.repeat(64)), /NOT_APPROVED/);
-  ledger.decide(app, row.id, 'approve');
-  assert.throws(() => ledger.decide(app, row.id, 'reject'), /IN_PROGRESS/);
-  const submitted = ledger.submitWithdrawal(app, row.id, '1'.repeat(64));
+  const row = (await ledger.request(app, 'a', { key: crypto.randomUUID(), destination, gross: '10' })).record;
+  await assert.rejects(() => ledger.submitWithdrawal(app, row.id, '1'.repeat(64)), /NOT_APPROVED/);
+  await ledger.decide(app, row.id, 'approve');
+  await assert.rejects(() => ledger.decide(app, row.id, 'reject'), /IN_PROGRESS/);
+  const submitted = await ledger.submitWithdrawal(app, row.id, '1'.repeat(64));
   assert.equal(app.users[0].withdrawnTotal, 0);
-  assert.equal(ledger.submitWithdrawal(app, row.id, submitted.txid).status, 'submitted');
+  assert.equal((await ledger.submitWithdrawal(app, row.id, submitted.txid)).status, 'submitted');
   for (const wrong of [event(submitted.txid, treasury, destination, 8_000_000),
     event(submitted.txid, destination, treasury, 9_000_000), event(submitted.txid, treasury, deriveAddress(xpub, 8), 9_000_000)]) {
-    assert.throws(() => ledger.settleWithdrawal(structuredClone(app), submitted, [wrong]), /MISMATCH/);
+    await assert.rejects(() => ledger.settleWithdrawal(structuredClone(app), submitted, [wrong]), /MISMATCH/);
   }
   const exact = event(submitted.txid, treasury, destination, 9_000_000);
-  assert.throws(() => ledger.settleWithdrawal(structuredClone(app), submitted, [exact, { ...exact, logIndex: 1 }]), /MISMATCH/);
-  assert.equal(ledger.settleWithdrawal(app, submitted, [event(submitted.txid, treasury, destination, 9_000_000)]), true);
-  assert.equal(ledger.settleWithdrawal(app, submitted, [event(submitted.txid, treasury, destination, 9_000_000)]), false);
+  await assert.rejects(() => ledger.settleWithdrawal(structuredClone(app), submitted, [exact, { ...exact, logIndex: 1 }]), /MISMATCH/);
+  assert.equal(await ledger.settleWithdrawal(app, submitted, [event(submitted.txid, treasury, destination, 9_000_000)]), true);
+  assert.equal(await ledger.settleWithdrawal(app, submitted, [event(submitted.txid, treasury, destination, 9_000_000)]), false);
   assert.equal(app.users[0].reservedBalance, 0);
   assert.equal(app.users[0].withdrawnTotal, 9);
   assert.equal(app.users[0].withdrawFeeTotal, 1);
   assert.equal(store.state().users[0].activities[0].status, 'confirmed');
-  const another = ledger.request(app, 'a', { key: crypto.randomUUID(), destination, gross: '10' }).record;
-  ledger.decide(app, another.id, 'approve');
-  assert.throws(() => ledger.submitWithdrawal(app, another.id, submitted.txid), /ALREADY_USED/);
+  const another = (await ledger.request(app, 'a', { key: crypto.randomUUID(), destination, gross: '10' })).record;
+  await ledger.decide(app, another.id, 'approve');
+  await assert.rejects(() => ledger.submitWithdrawal(app, another.id, submitted.txid), /ALREADY_USED/);
 });
 
 test('settlement recovers after outage and never treats a wrong or failed payment as paid', async t => {
   const { ledger, app } = await fixture(t);
-  const row = ledger.request(app, 'a', { key: crypto.randomUUID(), destination, gross: '20' }).record;
-  ledger.decide(app, row.id, 'approve');
+  const row = (await ledger.request(app, 'a', { key: crypto.randomUUID(), destination, gross: '20' })).record;
+  await ledger.decide(app, row.id, 'approve');
   const txid = '2'.repeat(64);
-  ledger.submitWithdrawal(app, row.id, txid);
+  await ledger.submitWithdrawal(app, row.id, txid);
   let current = app;
   let info = {};
   let offline = true;
   const watcher = new SettlementWatcher({ ledger, getState: () => current, commitState: next => { current = next; }, exclusive: async operation => operation(),
     client: { solidHeight: async () => { if (offline) throw new Error('offline'); return 1000; }, receipt: async () => info } });
   await watcher.poll();
-  assert.equal(ledger.withdrawal(row.id).status, 'submitted');
+  assert.equal((await ledger.withdrawal(row.id)).status, 'submitted');
   offline = false;
   await watcher.poll();
-  assert.equal(ledger.withdrawal(row.id).issue, 'AWAITING_CONFIRMATION');
+  assert.equal((await ledger.withdrawal(row.id)).issue, 'AWAITING_CONFIRMATION');
   info = receipt(txid, treasury, destination, 17_000_000);
   await watcher.poll();
-  assert.equal(ledger.withdrawal(row.id).issue, 'PAYOUT_RECEIPT_MISMATCH');
+  assert.equal((await ledger.withdrawal(row.id)).issue, 'PAYOUT_RECEIPT_MISMATCH');
   info = receipt(txid, treasury, destination, 18_000_000);
   info.receipt.result = 'REVERT';
   await watcher.poll();
@@ -162,45 +162,45 @@ test('settlement recovers after outage and never treats a wrong or failed paymen
   info.receipt.result = 'SUCCESS';
   await watcher.poll();
   assert.equal(current.users[0].withdrawnTotal, 18);
-  assert.equal(ledger.withdrawal(row.id).status, 'confirmed');
+  assert.equal((await ledger.withdrawal(row.id)).status, 'confirmed');
 });
 
 test('only a solidified failed payout can release a reservation; missing and successful transfers cannot', async t => {
   const { ledger, app } = await fixture(t);
-  const row = ledger.request(app, 'a', { key: crypto.randomUUID(), destination, gross: '10' }).record;
-  ledger.decide(app, row.id, 'approve');
+  const row = (await ledger.request(app, 'a', { key: crypto.randomUUID(), destination, gross: '10' })).record;
+  await ledger.decide(app, row.id, 'approve');
   const txid = '7'.repeat(64);
-  ledger.submitWithdrawal(app, row.id, txid);
-  assert.throws(() => ledger.releaseFailed(structuredClone(app), 'withdrawal', row.id, {}, 1000));
+  await ledger.submitWithdrawal(app, row.id, txid);
+  await assert.rejects(() => ledger.releaseFailed(structuredClone(app), 'withdrawal', row.id, {}, 1000));
   const info = receipt(txid, treasury, destination, 9_000_000);
-  assert.throws(() => ledger.releaseFailed(structuredClone(app), 'withdrawal', row.id, info, 1000), /NOT_VERIFIED/);
+  await assert.rejects(() => ledger.releaseFailed(structuredClone(app), 'withdrawal', row.id, info, 1000), /NOT_VERIFIED/);
   info.receipt.result = 'REVERT';
-  assert.throws(() => ledger.releaseFailed(structuredClone(app), 'withdrawal', row.id, info, 998), /solidified/);
+  await assert.rejects(() => ledger.releaseFailed(structuredClone(app), 'withdrawal', row.id, info, 998), /solidified/);
   assert.equal(app.users[0].reservedBalance, 10);
-  assert.equal(ledger.releaseFailed(app, 'withdrawal', row.id, info, 1000), true);
+  assert.equal(await ledger.releaseFailed(app, 'withdrawal', row.id, info, 1000), true);
   assert.equal(app.users[0].withdrawBalance, 100);
   assert.equal(app.users[0].reservedBalance, 0);
   assert.equal(app.users[0].withdrawnTotal, 0);
-  assert.throws(() => ledger.releaseFailed(app, 'withdrawal', row.id, info, 1000), /NOT_PENDING/);
+  await assert.rejects(() => ledger.releaseFailed(app, 'withdrawal', row.id, info, 1000), /NOT_PENDING/);
 });
 
 test('collection claims only verified deposits and does not credit them twice', async t => {
   const { ledger, store, app } = await fixture(t);
   const address = store.allocate('a', index => deriveAddress(xpub, index));
   store.credit(event('3'.repeat(64), treasury, address.address, 10_000_000), app, (target, id, transfer) => { target.users[0].lockedBalance += amount(transfer.units); });
-  const job = ledger.planCollections()[0];
-  assert.equal(ledger.planCollections().length, 1);
+  const job = (await ledger.planCollections())[0];
+  assert.equal((await ledger.planCollections()).length, 1);
   store.credit(event('4'.repeat(64), treasury, address.address, 2_000_000), app, target => { target.users[0].lockedBalance += 2; });
-  assert.equal(ledger.planCollections()[0].amount_units, '10000000');
+  assert.equal((await ledger.planCollections())[0].amount_units, '10000000');
   const expectation = { from: job.address, to: treasury, value: job.amount_units, feeLimit: 1_000_000 };
   const signed = await signTransfer(unsigned(expectation), branch.deriveChild(0).privateKey.slice(2), expectation);
-  ledger.recordCollection(job.id, signed, transaction => validateTransfer(transaction, expectation));
-  const saved = ledger.collections()[0];
+  await ledger.recordCollection(job.id, signed, transaction => validateTransfer(transaction, expectation));
+  const saved = (await ledger.collections())[0];
   assert.equal(saved.status, 'signed');
   assert.ok(saved.payload.includes(signed.txID));
-  assert.throws(() => ledger.settleCollection(saved, [event(saved.txid, saved.address, destination, 10_000_000)]), /MISMATCH/);
-  ledger.settleCollection(saved, [event(saved.txid, saved.address, treasury, 10_000_000)]);
-  assert.equal(ledger.planCollections()[0].amount_units, '2000000');
+  await assert.rejects(() => ledger.settleCollection(saved, [event(saved.txid, saved.address, destination, 10_000_000)]), /MISMATCH/);
+  await ledger.settleCollection(saved, [event(saved.txid, saved.address, treasury, 10_000_000)]);
+  assert.equal((await ledger.planCollections())[0].amount_units, '2000000');
   assert.equal(store.state().users[0].lockedBalance, 12);
 });
 
@@ -239,17 +239,17 @@ test('collector persists before broadcast, retries identical bytes and caps fuel
     if (route === '/wallet/triggersmartcontract') return { result: { result: true }, transaction: unsigned({ from: allocated.address, to: treasury, value: '10000000' }) };
     if (route === '/wallet/broadcasttransaction') {
       const kind = body.raw_data.contract[0].type;
-      if (kind === 'TriggerSmartContract') assert.equal(ledger.collections()[0].txid, body.txID, 'Signed token transaction must be persisted before broadcast');
-      if (kind === 'TransferContract') assert.ok(journal.funding(ledger.collections()[0].id));
+      if (kind === 'TriggerSmartContract') assert.equal((await ledger.collections())[0].txid, body.txID, 'Signed token transaction must be persisted before broadcast');
+      if (kind === 'TransferContract') assert.ok(journal.funding((await ledger.collections())[0].id));
       broadcasts.push({ txid: body.txID, kind });
       return { result: true };
     }
     throw new Error('Unexpected fixture endpoint: ' + route);
   } };
   const operator = async (route, body) => {
-    if (route === 'collections/plan') return { treasury, feeLimitSun: 1_000_000, collections: ledger.planCollections() };
+    if (route === 'collections/plan') return { treasury, feeLimitSun: 1_000_000, collections: await ledger.planCollections() };
     const id = route.split('/')[1];
-    return { collection: ledger.recordCollection(id, body.transaction, (transaction, job) => validateTransfer(transaction,
+    return { collection: await ledger.recordCollection(id, body.transaction, (transaction, job) => validateTransfer(transaction,
       { from: job.address, to: treasury, value: job.amount_units, feeLimit: 1_000_000 })) };
   };
   const worker = new CollectionWorker({ operator, client, wallet, treasury, branch, gasWallet, journal,
@@ -266,12 +266,12 @@ test('collector persists before broadcast, retries identical bytes and caps fuel
   assert.equal(new Set(broadcasts.map(row => row.txid)).size, 1);
   fuelConfirmed = true;
   assert.equal((await worker.cycle())[0].status, 'awaiting-confirmation');
-  const signedJob = ledger.collections()[0];
+  const signedJob = (await ledger.collections())[0];
   const recordedBeforeRetry = signedJob.txid;
   const previous = client.request;
   client.request = async (route, body) => { if (route === '/wallet/broadcasttransaction') throw new Error('fixture lost acknowledgment'); return previous.call(client, route, body); };
   assert.equal((await worker.cycle())[0].status, 'PAUSED_FOR_REVIEW');
-  assert.equal(ledger.collections()[0].txid, recordedBeforeRetry);
+  assert.equal((await ledger.collections())[0].txid, recordedBeforeRetry);
   client.request = previous;
   assert.equal((await worker.cycle())[0].status, 'awaiting-confirmation');
   assert.equal(new Set(broadcasts.filter(row => row.kind === 'TriggerSmartContract').map(row => row.txid)).size, 1);
@@ -282,7 +282,7 @@ test('collector persists before broadcast, retries identical bytes and caps fuel
   client.request = async () => { sentAfterStop = true; throw new Error('No network after stop'); };
   await assert.rejects(worker.process(signedJob), /STOPPED/);
   assert.equal(sentAfterStop, false);
-  const bad = { ...ledger.collections()[0], treasury: destination };
+  const bad = { ...(await ledger.collections())[0], treasury: destination };
   await assert.rejects(worker.process(bad), /UNTRUSTED/);
 });
 

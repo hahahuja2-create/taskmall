@@ -6,6 +6,9 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env server.js",
     "dev": "node --env-file-if-exists=.env --watch server.js",
+    "db:migrate": "node --env-file-if-exists=.env scripts/mysql-migrate.cjs",
+    "test:mysql": "node --test scripts/verify-mysql.cjs",
+    "check:mysql": "node --check database/mysql.js && node --check payments/mysql-store.js && node --check platform-catalog.js && node --check scripts/mysql-migrate.cjs && node --check scripts/verify-mysql.cjs",
     "payments:check": "node --env-file-if-exists=.env scripts/payment-status.cjs",
     "payments:operator": "node --env-file-if-exists=.env scripts/payment-operator.cjs",
     "payments:desk": "node --env-file-if-exists=.env scripts/operator-open.cjs",
@@ -38,11 +41,14 @@
     "chart.js": "^4.5.1",
     "ethers": "6.17.0",
     "lucide": "^1.52.0",
+    "mysql2": "^3.24.5",
     "qrcode": "1.5.4",
     "tronweb": "6.5.1"
   },
   "overrides": {
-    "tronweb": { "axios": "1.20.0" }
+    "tronweb": {
+      "axios": "1.20.0"
+    }
   },
   "devDependencies": {
     "playwright": "^1.63.0"

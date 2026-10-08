@@ -61,8 +61,8 @@ async function fixture(t) {
     enabled: true, usdt: 100_000_000n, trx: 50_000_000, broadcasts: [], builds: 0, lostAck: false };
   f.ledger = new OutgoingLedger(f.store, treasury);
   f.store.save(f.current);
-  const row = f.ledger.request(f.current, 'a', { key: crypto.randomUUID(), destination, gross: '10' }).record;
-  f.ledger.decide(f.current, row.id, 'approve');
+  const row = (await f.ledger.request(f.current, 'a', { key: crypto.randomUUID(), destination, gross: '10' })).record;
+  await f.ledger.decide(f.current, row.id, 'approve');
   f.id = row.id;
   let queue = Promise.resolve();
   const exclusive = op => { const next = queue.then(op); queue = next.catch(() => {}); return next; };
@@ -75,8 +75,8 @@ async function fixture(t) {
         value: BigInt('0x' + body.parameter.slice(64)), feeLimit: body.fee_limit }) };
     }
     if (route === '/wallet/broadcasttransaction') {
-      assert.deepEqual(f.ledger.signedWithdrawal(f.id), body);
-      assert.equal(f.ledger.withdrawal(f.id).status, 'submitted');
+      assert.deepEqual(await f.ledger.signedWithdrawal(f.id), body);
+      assert.equal((await f.ledger.withdrawal(f.id)).status, 'submitted');
       f.broadcasts.push(structuredClone(body));
       if (f.lostAck) throw new Error('Simulated missing acknowledgement');
       return { result: true };
@@ -107,16 +107,16 @@ test('unsigned intent is pinned once, cannot be substituted, and signed bytes su
   const signed = await signTransfer(prepared.transaction, branch.deriveChild(9).privateKey.slice(2), expectation);
   await f.payouts.record(f.id, signed);
   await f.payouts.record(f.id, signed);
-  assert.equal(f.ledger.pending().length, 1);
+  assert.equal((await f.ledger.pending()).length, 1);
   assert.equal(f.current.users[0].withdrawnTotal || 0, 0);
   f.store.close();
   f.store = new PaymentStore(f.directory);
   f.ledger = new OutgoingLedger(f.store, treasury);
   f.current = f.store.state();
-  assert.deepEqual(f.ledger.signedWithdrawal(f.id), signed);
+  assert.deepEqual(await f.ledger.signedWithdrawal(f.id), signed);
   assert.equal((await f.payouts.send(f.id)).broadcastAcknowledged, true);
   assert.equal(f.broadcasts.length, 1);
-  assert.equal(f.ledger.withdrawal(f.id).status, 'submitted');
+  assert.equal((await f.ledger.withdrawal(f.id)).status, 'submitted');
   assert.equal(f.current.users[0].reservedBalance, 10);
 });
 

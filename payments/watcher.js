@@ -26,7 +26,7 @@ class DepositWatcher {
     try {
       const raw = await fs.readFile(this.walletFile, 'utf8');
       const wallet = validateWallet(JSON.parse(raw), this.treasury);
-      this.store.registerWallet(wallet);
+      await this.exclusive(() => this.store.registerWallet(wallet));
       this.wallet = wallet;
       const height = await this.client.solidHeight();
       const addresses = await this.exclusive(() => this.store.addresses());

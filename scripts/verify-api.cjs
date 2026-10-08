@@ -30,7 +30,7 @@ async function start(t, options = {}) {
     cwd: root, windowsHide: true, stdio: 'pipe',
     env: { ...process.env, NODE_ENV: options.production ? 'production' : options.wallet ? 'test' : 'development',
       HOST: '127.0.0.1', PORT: '0', PUBLIC_ORIGIN: options.production ? 'https://taskmall.test' : '',
-      TASKMALL_DATA_DIR: directory, TASKMALL_TEST_WALLET: options.wallet ? '1' : '', ...options.env }
+      TASKMALL_DATA_DIR: directory, TASKMALL_TEST_WALLET: options.wallet ? '1' : '', MYSQL_URL: '', DATABASE_URL: '', ...options.env }
   });
   let errors = '';
   child.stderr.on('data', chunk => { errors += chunk; });
