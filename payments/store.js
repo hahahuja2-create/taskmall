@@ -85,6 +85,7 @@ class PaymentStore {
 
   registerWallet(wallet) {
     this.transaction(() => {
+      if (this.sql.prepare("SELECT value FROM settings WHERE name='deposit_allocation_retired'").get()) throw new Error('Deposit ledger was retired during deployment cutover.');
       const saved = this.sql.prepare("SELECT value FROM settings WHERE name='wallet'").get();
       if (saved && saved.value !== wallet.fingerprint) throw new Error('Deposit wallet cannot be changed without a reviewed migration.');
       this.sql.prepare("INSERT OR IGNORE INTO settings VALUES ('wallet',?)").run(wallet.fingerprint);
@@ -93,9 +94,12 @@ class PaymentStore {
 
   allocate(userId, derive, timestamp = Date.now()) {
     return this.transaction(() => {
+      if (this.sql.prepare("SELECT value FROM settings WHERE name='deposit_allocation_retired'").get()) throw new Error('Deposit ledger was retired during deployment cutover.');
       const existing = this.address(userId);
       if (existing) return existing;
-      const next = Number(this.sql.prepare('SELECT COALESCE(MAX(address_index),-1)+1 AS n FROM deposit_addresses').get().n);
+      const start = Number(this.sql.prepare("SELECT value FROM settings WHERE name='deposit_index_start'").get()?.value || 0);
+      const next = Math.max(start, Number(this.sql.prepare('SELECT COALESCE(MAX(address_index),-1)+1 AS n FROM deposit_addresses').get().n));
+      if (!Number.isSafeInteger(start) || start < 0 || !Number.isSafeInteger(next) || next >= 0x80000000) throw new Error('Invalid deposit address range.');
       const address = derive(next);
       this.sql.prepare('INSERT INTO deposit_addresses(user_id,address,address_index,created_at) VALUES (?,?,?,?)').run(userId, address, next, timestamp);
       return this.address(userId);

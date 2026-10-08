@@ -165,6 +165,7 @@ class MysqlPaymentStore {
   save(state, reason = 'platform-operation') { return this.transaction(() => this.saveInside(state, reason)); }
   registerWallet(wallet) {
     return this.transaction(async () => {
+      if (await this.sql.prepare("SELECT value FROM settings WHERE name='deposit_allocation_retired'").get()) throw new Error('Deposit ledger was retired during deployment cutover.');
       const saved = await this.sql.prepare("SELECT value FROM settings WHERE name='wallet'").get();
       if (saved && saved.value !== wallet.fingerprint) throw new Error('Deposit wallet cannot be changed without a reviewed migration.');
       if (!saved) await this.execute("INSERT INTO settings VALUES ('wallet',?)", [wallet.fingerprint]);
@@ -172,11 +173,13 @@ class MysqlPaymentStore {
   }
   allocate(userId, derive, timestamp = Date.now()) {
     return this.transaction(async () => {
+      if (await this.sql.prepare("SELECT value FROM settings WHERE name='deposit_allocation_retired'").get()) throw new Error('Deposit ledger was retired during deployment cutover.');
       const existing = await this.address(userId);
       if (existing) return existing;
       const [[{ n }]] = await this.connection.query('SELECT COALESCE(MAX(address_index),-1)+1 AS n FROM deposit_addresses');
-      const next = Number(n);
-      if (!Number.isSafeInteger(next) || next >= 0x80000000) throw new Error('Deposit address index exhausted.');
+      const start = Number((await this.sql.prepare("SELECT value FROM settings WHERE name='deposit_index_start'").get())?.value || 0);
+      const next = Math.max(start, Number(n));
+      if (!Number.isSafeInteger(start) || start < 0 || !Number.isSafeInteger(next) || next >= 0x80000000) throw new Error('Invalid deposit address range.');
       await this.execute('INSERT INTO deposit_addresses(user_id,address,address_index,created_at) VALUES (?,?,?,?)', [userId, derive(next), next, timestamp]);
       return this.address(userId);
     });

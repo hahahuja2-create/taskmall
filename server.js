@@ -232,7 +232,7 @@ async function loadDatabase() {
     for (const user of db.users) ensureUserShape(user);
     await paymentStore.save(db, 'initial-import-or-migration');
     outgoingLedger = new OutgoingLedger(paymentStore, TREASURY);
-    if (process.env.TASKMALL_OPERATOR_ENABLED === '1') operatorToken = await loadOperatorToken(OPERATOR_FILE, true);
+    if (process.env.TASKMALL_OPERATOR_ENABLED === '1') operatorToken = await loadOperatorToken(OPERATOR_FILE, true, process.env.TASKMALL_OPERATOR_TOKEN);
     if (TRON_DEPOSITS) {
       if (process.env.TRON_AUTO_WALLET === '1') {
         const { provisionWallet } = require('./payments/vault');

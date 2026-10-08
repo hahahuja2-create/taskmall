@@ -8,6 +8,8 @@
     "dev": "node --env-file-if-exists=.env --watch server.js",
     "db:migrate": "node --env-file-if-exists=.env scripts/mysql-migrate.cjs",
     "test:mysql": "node --test scripts/verify-mysql.cjs",
+    "test:cutover": "node --test scripts/verify-deployment-cutover.cjs",
+    "check:cutover": "node --check payments/deployment-cutover.js && node --check scripts/verify-deployment-cutover.cjs",
     "check:mysql": "node --check database/mysql.js && node --check payments/mysql-store.js && node --check platform-catalog.js && node --check scripts/mysql-migrate.cjs && node --check scripts/verify-mysql.cjs",
     "payments:check": "node --env-file-if-exists=.env scripts/payment-status.cjs",
     "payments:operator": "node --env-file-if-exists=.env scripts/payment-operator.cjs",

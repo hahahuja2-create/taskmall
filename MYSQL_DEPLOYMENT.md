@@ -47,7 +47,11 @@ overlapping zero-downtime deployments are incompatible with this writer model.
 A graceful stop releases the lock; a disconnected MySQL connection also loses
 the lock and the application fails closed instead of reconnecting blindly.
 
-Retain a persistent volume for the operator token. The signed public deposit
+Retain a persistent volume for the operator token, or configure
+`TASKMALL_OPERATOR_TOKEN` as a protected service variable (43 base64url characters).
+The server recreates its private token file with that exact credential; a
+conflicting file stops startup rather than silently replacing credentials.
+The signed public deposit
 configuration can be mounted using `TRON_WALLET_PUBLIC_FILE`, or supplied as the
 `TRON_WALLET_PUBLIC_JSON` service variable. JSON takes precedence and must contain
 only the original signed public configuration; invalid input never falls back
@@ -81,14 +85,11 @@ With a specific self-signed MySQL CA, it verifies that certificate chain
 (VERIFY_CA); auto-generated MySQL certificates do not identify the proxy hostname.
 Private `.railway.internal` connections use Railway private networking.
 
-The local preparation connection pins the CA observed at the supplied endpoint
-on first contact. Its authenticity has not been independently verified against
-the Railway database container. Do not confuse first-contact pinning with that
-verification. Check the CA against the server's `ca.pem` through an authenticated
-Railway session before continuing to rely on the public proxy. The agent did not
-send a database password during certificate inspection. Credentials and the
-observed CA stay in ignored local files; the credential file has a restricted
-Windows ACL.
+The local preparation connection originally pinned the observed CA on first
+contact. Its SHA-256 fingerprint was subsequently compared with
+`/var/lib/mysql/ca.pem` through an authenticated Railway SSH session and matched.
+Repeat that check when replacing the database or CA. Credentials and the CA stay
+in ignored local files; the credential file has a restricted Windows ACL.
 
 ## Existing Data And Launch Gates
 
@@ -106,6 +107,20 @@ restore, least-privilege credentials, externally monitored health, an explicit
 cutover, operator access from the deployment, protected wallet recovery and a
 user-authorized real deposit/payout rehearsal still need verification. Current
 reward obligations also require funding/reconciliation; schema cannot supply it.
+
+The restricted `payments/deployment-cutover.js` helper supports only an unfunded
+source with free memberships, welcome activity and an empty payment journal.
+It preserves account identities and password hashes in one MySQL transaction,
+requires an empty target, binds a checksummed import marker to the wallet and
+reserved address range, and refuses conflicting retries. It is not a general
+financial migration tool and rejects any earned or funded balances.
+
+A reviewed `deposit_index_start` setting reserves previously issued address
+indexes. The retired local ledger must be stopped, backed up and marked with
+`deposit_allocation_retired` before the primary deployment can issue later
+indexes. Retired mappings are retained, not reassigned to new owners. Do not
+resume the old application as an independent payment ledger. Its records and
+any later deposits to a retired address require operator reconciliation.
 
 ## Verification
 

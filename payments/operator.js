@@ -4,14 +4,16 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-async function loadOperatorToken(file, create = false) {
+async function loadOperatorToken(file, create = false, configured = '') {
+  if (configured && !/^[a-zA-Z0-9_-]{43}$/.test(configured)) throw new Error('Invalid configured operator credential.');
   if (create) {
     await fs.mkdir(path.dirname(file), { recursive: true });
-    try { await fs.writeFile(file, crypto.randomBytes(32).toString('base64url'), { flag: 'wx', mode: 0o600 }); }
+    try { await fs.writeFile(file, configured || crypto.randomBytes(32).toString('base64url'), { flag: 'wx', mode: 0o600 }); }
     catch (error) { if (error.code !== 'EEXIST') throw error; }
   }
   const token = (await fs.readFile(file, 'utf8')).trim();
   if (!/^[a-zA-Z0-9_-]{43}$/.test(token)) throw new Error('Invalid operator credential file.');
+  if (configured && token !== configured) throw new Error('Operator credential conflicts with the configured value.');
   return token;
 }
 
