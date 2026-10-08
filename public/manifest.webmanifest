@@ -1,0 +1,9 @@
+{
+  "name": "TaskMall",
+  "short_name": "TaskMall",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f7f6",
+  "theme_color": "#176b56",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

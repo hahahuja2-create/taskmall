@@ -1,0 +1,50 @@
+{
+  "name": "taskmall-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TaskMall task, VIP membership, and wallet platform",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js",
+    "dev": "node --env-file-if-exists=.env --watch server.js",
+    "payments:check": "node --env-file-if-exists=.env scripts/payment-status.cjs",
+    "payments:operator": "node --env-file-if-exists=.env scripts/payment-operator.cjs",
+    "payments:desk": "node --env-file-if-exists=.env scripts/operator-open.cjs",
+    "collections": "node --env-file-if-exists=.env scripts/collection-worker.cjs",
+    "collections:prepare": "node --env-file-if-exists=.env scripts/collection-worker.cjs --setup --copy-backup",
+    "collections:prepare-local": "node --env-file-if-exists=.env scripts/collection-worker.cjs --setup --local-backup",
+    "collections:enable": "node --env-file-if-exists=.env scripts/collection-worker.cjs --setup --run",
+    "test:collections": "node --test scripts/verify-collection-activation.cjs",
+    "test:outgoing": "node --test scripts/verify-outgoing.cjs",
+    "test:tronlink": "node --test scripts/verify-tronlink.cjs",
+    "wallet:backup": "node --env-file-if-exists=.env scripts/wallet-backup.cjs",
+    "wallet:iphone": "node --env-file-if-exists=.env scripts/iphone-backup.cjs",
+    "wallet:iphone-verify": "node --env-file-if-exists=.env scripts/iphone-backup.cjs --verify-return",
+    "test:iphone-backup": "node --test scripts/verify-iphone-backup.cjs",
+    "wallet:secure-backup": "node --env-file-if-exists=.env scripts/secure-backup.cjs",
+    "wallet:finish-backup": "node --env-file-if-exists=.env scripts/secure-backup.cjs --verify-return",
+    "test:backup-rotation": "node --test scripts/verify-backup-rotation.cjs",
+    "check:backup": "node --check payments/backup-rotation.js && node --check scripts/secure-backup.cjs && node --check scripts/verify-backup-rotation.cjs",
+    "test:payments": "node --test scripts/verify-payments.cjs",
+    "check": "node --check server.js && node --check task-catalog.js && node --check public/app.js && node --check payments/tron.js && node --check payments/store.js && node --check payments/watcher.js && node --check payments/vault.js && node --check payments/outgoing.js && node --check payments/operator.js && node --check payments/transactions.js && node --check payments/collector.js && node --check payments/payouts.js && node --check payments/portal.js && node --check payments/collection-activation.js && node --check payments/private-terminal.js && node --check payments/offline-backup.js && node --check payments/iphone-backup.js && node --check payments/operator-ui/app.js && node --check payments/operator-ui/unlock.js && node --check scripts/payment-status.cjs && node --check scripts/wallet-backup.cjs && node --check scripts/iphone-backup.cjs && node --check scripts/verify-iphone-backup.cjs && node --check scripts/payment-operator.cjs && node --check scripts/collection-worker.cjs && node --check scripts/operator-open.cjs && node --check scripts/verify-tronlink.cjs && node --check scripts/verify-collection-activation.cjs && node --check scripts/tron-test-helpers.cjs && node --check scripts/tron-fixture-preload.cjs && npm run check:backup",
+    "test:ui": "node scripts/verify-ui.cjs",
+    "test:api": "node --test scripts/verify-api.cjs"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/noto-sans-georgian": "^5.3.0",
+    "chart.js": "^4.5.1",
+    "ethers": "6.17.0",
+    "lucide": "^1.52.0",
+    "qrcode": "1.5.4",
+    "tronweb": "6.5.1"
+  },
+  "overrides": {
+    "tronweb": { "axios": "1.20.0" }
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}

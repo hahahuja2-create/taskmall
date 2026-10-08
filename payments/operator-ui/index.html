@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>TaskMall | Payment Operations</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="stylesheet" href="/operator/styles.css" />
+    <script src="/vendor/lucide.min.js" defer></script>
+    <script src="/operator/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/operator/"><img src="/favicon.svg" alt="" width="30" height="30" />TaskMall<span>Payment Operations</span></a>
+      <div class="header-actions">
+        <button id="connect" class="primary"><i data-lucide="wallet"></i>Connect TronLink</button>
+        <button id="refresh" class="icon-button" title="Refresh withdrawals" aria-label="Refresh withdrawals"><i data-lucide="refresh-cw"></i></button>
+        <button id="logout" class="icon-button" title="End operator session" aria-label="End operator session"><i data-lucide="log-out"></i></button>
+      </div>
+    </header>
+    <main>
+      <div class="page-heading"><div><p class="eyebrow">USDT / TRON MAINNET</p><h1>Withdrawals</h1></div><span class="status" id="sending-status">Checking availability</span></div>
+      <section class="treasury-band" aria-label="Treasury account">
+        <div><span class="label">Treasury wallet</span><code id="treasury">Loading...</code></div>
+        <div><span class="label">TronLink</span><span id="wallet-status">Not connected</span></div>
+        <div><span class="label">Session</span><span id="session-status">Private operator access</span></div>
+      </section>
+      <div id="notice" role="status" hidden></div>
+      <section class="metrics" aria-label="Withdrawal totals">
+        <div><span class="label">Awaiting review</span><strong id="requested-count">0</strong></div>
+        <div><span class="label">Approved net amount</span><strong id="approved-total">0 USDT</strong></div>
+        <div><span class="label">Awaiting chain confirmation</span><strong id="submitted-count">0</strong></div>
+        <div><span class="label">Confirmed net amount</span><strong id="confirmed-total">0 USDT</strong></div>
+      </section>
+      <nav class="tabs" aria-label="Withdrawal status">
+        <button data-filter="active" aria-pressed="true">Active</button><button data-filter="requested" aria-pressed="false">Awaiting review</button>
+        <button data-filter="approved" aria-pressed="false">Approved</button><button data-filter="submitted" aria-pressed="false">Submitted</button>
+        <button data-filter="confirmed" aria-pressed="false">Confirmed</button><button data-filter="all" aria-pressed="false">All</button>
+      </nav>
+      <section id="withdrawals" aria-label="Withdrawal requests" aria-live="polite"></section>
+    </main>
+    <dialog id="review">
+      <header class="dialog-heading"><h2>Withdrawal Review</h2><button id="close" class="icon-button" title="Close review" aria-label="Close review"><i data-lucide="x"></i></button></header>
+      <div class="review-body">
+      <div class="net-amount"><span class="label">Recipient receives</span><strong id="review-net"></strong><span>USDT TRC20</span></div>
+      <dl><div><dt>Request</dt><dd id="review-id"></dd></div><div><dt>From</dt><dd id="review-from"></dd></div><div><dt>To</dt><dd id="review-to"></dd></div>
+        <div><dt>Requested amount</dt><dd id="review-gross"></dd></div><div><dt>Platform fee (10%)</dt><dd id="review-fee"></dd></div><div><dt>Status</dt><dd id="review-status"></dd></div></dl>
+      <div id="prepare-controls"><label for="fee-limit">Maximum network fee (TRX)</label><input id="fee-limit" type="number" min="1" max="200" step="0.000001" inputmode="decimal" autocomplete="off" />
+        <button id="prepare"><i data-lucide="file-check-2"></i>Prepare transaction</button></div>
+      <div id="transaction-details" hidden><dl><div><dt>Maximum network fee</dt><dd id="review-network-fee"></dd></div><div><dt>Transaction</dt><dd id="review-txid"></dd></div><div><dt>Expires</dt><dd id="review-expiry"></dd></div></dl></div>
+      <label class="confirmation"><input id="confirm-details" type="checkbox" />I confirm the recipient and exact net amount.</label>
+      <div id="review-notice" role="status" hidden></div>
+      </div>
+      <footer class="dialog-actions"><button id="reject" class="danger"><i data-lucide="ban"></i>Reject request</button><button id="approve" class="primary"><i data-lucide="check"></i>Approve request</button>
+        <button id="review-connect"><i data-lucide="wallet"></i>Connect TronLink</button><button id="send" class="primary"><i data-lucide="wallet"></i>Sign and send with TronLink</button><button id="retry" class="primary"><i data-lucide="refresh-cw"></i><span id="retry-label">Retry same transaction</span></button></footer>
+    </dialog>
+  </body>
+</html>

@@ -1,0 +1,17 @@
+data/
+setup/
+node_modules/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+artifacts/
+config/tron-wallet-public.json
+*.keystore.json*
+*.vault
+*.vault.*
+*.pem
+*.key
+*.p12
+*.pfx
