@@ -39,6 +39,8 @@ const state = {
   authMode: 'signup',
   modalTaskId: null,
   walletModal: null,
+  walletChecking: false,
+  walletError: null,
   helpOpen: false,
   loading: true,
   busy: false
@@ -467,8 +469,8 @@ errors.ka.DEPOSITS_UNAVAILABLE = 'შევსება დროებით �
 Object.assign(en, {
   tronOnly: 'Send only USDT on the TRON (TRC20) network. Other assets and networks are not supported.',
   depositAutomatic: 'Your balance updates automatically after blockchain confirmation.',
-  depositWaiting: 'Waiting for a confirmed deposit', depositUnavailable: 'Deposits are not available yet.',
-  withdrawalUnavailable: 'Withdrawals are not available yet.', explorer: 'View on TRONSCAN',
+  depositWaiting: 'Waiting for a confirmed deposit', depositUnavailable: 'Deposits are temporarily unavailable.',
+  withdrawalUnavailable: 'Withdrawals are temporarily unavailable.', checkingPayments: 'Checking payment availability...', retry: 'Try again', explorer: 'View on TRONSCAN',
   depositReceived: 'A confirmed USDT deposit has been credited.', loadingAddress: 'Preparing your deposit address...'
 });
 en.depositsReady = 'USDT TRC20 deposits are available. Withdrawals are not enabled yet.';
@@ -490,8 +492,8 @@ errors.ka.REQUEST_KEY_CONFLICT = 'ეს მოთხოვნა სხვა �
 Object.assign(copy.ka, {
   tronOnly: 'გადმორიცხეთ მხოლოდ USDT, TRON (TRC20) ქსელით. სხვა აქტივები და ქსელები მხარდაჭერილი არ არის.',
   depositAutomatic: 'ბალანსი ავტომატურად განახლდება ბლოკჩეინზე დადასტურების შემდეგ.',
-  depositWaiting: 'დადასტურებული ჩარიცხვის მოლოდინში', depositUnavailable: 'შევსება ჯერ მიუწვდომელია.',
-  withdrawalUnavailable: 'გატანა ჯერ მიუწვდომელია.', explorer: 'ნახვა TRONSCAN-ზე',
+  depositWaiting: 'დადასტურებული ჩარიცხვის მოლოდინში', depositUnavailable: 'შევსება დროებით მიუწვდომელია.',
+  withdrawalUnavailable: 'გატანა დროებით მიუწვდომელია.', checkingPayments: 'გადახდების ხელმისაწვდომობა მოწმდება...', retry: 'ხელახლა ცდა', explorer: 'ნახვა TRONSCAN-ზე',
   depositReceived: 'დადასტურებული USDT ჩარიცხვა აისახა ბალანსზე.', loadingAddress: 'ჩარიცხვის მისამართი მზადდება...'
 });
 copy.ka.depositsReady = 'USDT TRC20 შევსება ხელმისაწვდომია. გატანა ჯერ არ არის ჩართული.';
@@ -504,7 +506,7 @@ errors.ka.INSUFFICIENT_LOCKED_BALANCE = 'VIP account ბალანსი ა�
 
 Object.assign(en, {
   workspace: 'Workspace', overview: 'Overview', walletTitle: 'Wallet', company: 'Company', support: 'Support',
-  account: 'Account', platform: 'Platform', workspaceStatus: 'TaskMall Workspace', authBrandText: 'One workspace. Every possibility.',
+  account: 'Account', profile: 'Profile', platform: 'Platform', workspaceStatus: 'TaskMall Workspace', authBrandText: 'One workspace. Every possibility.',
   authBrandSub: 'Tasks, your team, and your accounts. Connected in TaskMall.',
   signupTitle: 'Create your account', loginTitle: 'Welcome back', authSubtitle: 'Your TaskMall workspace is ready when you are.',
   overviewText: 'Your accounts and today\'s work, at a glance.', viewAll: 'View all', availableNow: 'Available now',
@@ -530,7 +532,7 @@ Object.assign(en, {
 
 Object.assign(copy.ka, {
   workspace: 'სამუშაო სივრცე', overview: 'მიმოხილვა', walletTitle: 'საფულე', company: 'კომპანია', support: 'დახმარება',
-  account: 'ანგარიში', platform: 'პლატფორმა', workspaceStatus: 'TaskMall სივრცე',
+  account: 'ანგარიში', profile: 'პროფილი', platform: 'პლატფორმა', workspaceStatus: 'TaskMall სივრცე',
   authBrandText: 'ერთი სივრცე. ახალი შესაძლებლობები.', authBrandSub: 'დავალებები, გუნდი და ანგარიშები. ყველაფერი TaskMall-ში.',
   signupTitle: 'შექმენი შენი ანგარიში', loginTitle: 'კეთილი იყოს შენი დაბრუნება', authSubtitle: 'შენი TaskMall-ის სამუშაო სივრცე მზად არის.',
   navHome: 'მიმოხილვა', navTasks: 'დავალებები', navVip: 'VIP', navTeam: 'გუნდი', navMe: 'ანგარიში',
@@ -607,7 +609,7 @@ function icon(name, className = '') {
     deposit: 'ArrowDownToLine', withdraw: 'ArrowUpFromLine', transfer: 'ArrowLeftRight',
     briefcase: 'Building2', gift: 'Gift', copy: 'Copy', close: 'X', logout: 'LogOut',
     save: 'Save', info: 'Info', search: 'Search', menu: 'Menu', download: 'Download',
-    chevron: 'ChevronRight', globe: 'Globe2', shield: 'ShieldCheck', settings: 'Settings2'
+    chevron: 'ChevronRight', globe: 'Globe2', shield: 'ShieldCheck', settings: 'Settings2', retry: 'RefreshCw'
   };
   return lucide.createElement(lucide.icons[names[name] || 'Sparkles'], {
     class: `icon ${className}`, 'aria-hidden': 'true', 'stroke-width': 1.75
@@ -619,7 +621,9 @@ async function api(path, options = {}) {
     method: options.method || 'GET',
     headers: options.body || (options.method && options.method !== 'GET') ? { 'Content-Type': 'application/json' } : undefined,
     body: options.body ? JSON.stringify(options.body) : undefined,
-    credentials: 'same-origin'
+    credentials: 'same-origin',
+    cache: 'no-store',
+    signal: options.timeout ? AbortSignal.timeout(options.timeout) : undefined
   });
   let data = {};
   try { data = await response.json(); } catch { /* response without JSON */ }
@@ -789,16 +793,22 @@ function renderWalletPanel(compact = false) {
     </section>`;
 }
 
+function renderWalletStatus(message, loading = false) {
+  return `<div class="dialog-backdrop" data-action="backdrop-close" role="presentation"><section class="dialog wallet-dialog" role="dialog" aria-modal="true" aria-labelledby="wallet-dialog-title" aria-busy="${loading}"><div class="dialog-head"><span class="dialog-task-icon">${icon(state.walletModal)}</span><button class="dialog-close" type="button" data-action="close-dialog" aria-label="${escapeHtml(t('close'))}">${icon('close')}</button></div><div class="dialog-body"><h2 id="wallet-dialog-title">${escapeHtml(t(state.walletModal))}</h2><p class="dialog-description" role="status">${escapeHtml(message)}</p>${loading ? '' : `<button class="secondary-button" type="button" data-action="retry-wallet">${icon('retry')}${escapeHtml(t('retry'))}</button>`}</div></section></div>`;
+}
+
 function renderWalletDialog() {
   const type = state.walletModal;
   if (!type) return '';
-  if (state.paymentMode === 'tron-watch-only' && type !== 'transfer' && (type === 'deposit' || !state.withdrawalsAvailable)) {
-    const wallet = state.depositWallet;
-    const available = type === 'deposit' && state.paymentsAvailable && wallet;
-    return `<div class="dialog-backdrop" data-action="backdrop-close" role="presentation"><section class="dialog wallet-dialog" role="dialog" aria-modal="true" aria-labelledby="wallet-dialog-title"><div class="dialog-head"><span class="dialog-task-icon">${icon(type)}</span><button class="dialog-close" type="button" data-action="close-dialog" aria-label="${escapeHtml(t('close'))}">${icon('close')}</button></div><div class="dialog-body"><span class="dialog-kicker">USDT / TRC20</span><h2 id="wallet-dialog-title">${escapeHtml(t(type))}</h2>${available ? `<div class="native-deposit"><img class="deposit-qr" src="${escapeHtml(wallet.qr)}" width="200" height="200" alt="${escapeHtml(t('depositAddress'))}"><label class="deposit-address-label">${escapeHtml(t('depositAddress'))}</label><div class="native-address-row"><code>${escapeHtml(wallet.address.slice(0, 17))}<wbr>${escapeHtml(wallet.address.slice(17))}</code><button type="button" class="icon-button" data-action="copy-native-deposit" title="${escapeHtml(t('copyAddress'))}" aria-label="${escapeHtml(t('copyAddress'))}">${icon('copy')}</button></div><div class="deposit-warning">${icon('info')}<span>${escapeHtml(t('tronOnly'))}</span></div><p>${escapeHtml(t('depositAutomatic'))}</p><div class="deposit-status">${icon('clock')}<span>${escapeHtml(t('depositWaiting'))}</span></div><a class="text-button" href="${escapeHtml(wallet.explorer)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t('explorer'))}${icon('arrow')}</a></div>` : `<p class="dialog-description">${escapeHtml(t(type === 'withdraw' ? 'withdrawalUnavailable' : 'depositUnavailable'))}</p>`}</div></section></div>`;
+  if (type !== 'transfer' && state.walletChecking) return renderWalletStatus(t(type === 'deposit' ? 'loadingAddress' : 'checkingPayments'), true);
+  if (type !== 'transfer' && state.walletError) return renderWalletStatus(state.walletError);
+  const available = type === 'deposit' ? state.paymentsAvailable : state.withdrawalsAvailable;
+  if (type !== 'transfer' && (!available || (type === 'deposit' && state.paymentMode === 'tron-watch-only' && !state.depositWallet))) {
+    return renderWalletStatus(t(type === 'withdraw' ? 'withdrawalUnavailable' : 'depositUnavailable'));
   }
-  if (type !== 'transfer' && !state.paymentsAvailable) {
-    return `<div class="dialog-backdrop" data-action="backdrop-close" role="presentation"><section class="dialog wallet-dialog" role="dialog" aria-modal="true" aria-labelledby="wallet-dialog-title"><div class="dialog-head"><span class="dialog-task-icon">${icon('wallet', 'icon-lg')}</span><button class="dialog-close" type="button" data-action="close-dialog" aria-label="${escapeHtml(t('close'))}">${icon('close')}</button></div><div class="dialog-body"><h2 id="wallet-dialog-title">${escapeHtml(t(type))}</h2><p class="dialog-description">${escapeHtml(t('paymentStatusDetail'))}</p></div></section></div>`;
+  if (state.paymentMode === 'tron-watch-only' && type === 'deposit') {
+    const wallet = state.depositWallet;
+    return `<div class="dialog-backdrop" data-action="backdrop-close" role="presentation"><section class="dialog wallet-dialog" role="dialog" aria-modal="true" aria-labelledby="wallet-dialog-title"><div class="dialog-head"><span class="dialog-task-icon">${icon(type)}</span><button class="dialog-close" type="button" data-action="close-dialog" aria-label="${escapeHtml(t('close'))}">${icon('close')}</button></div><div class="dialog-body"><span class="dialog-kicker">USDT / TRC20</span><h2 id="wallet-dialog-title">${escapeHtml(t(type))}</h2>${available ? `<div class="native-deposit"><img class="deposit-qr" src="${escapeHtml(wallet.qr)}" width="200" height="200" alt="${escapeHtml(t('depositAddress'))}"><label class="deposit-address-label">${escapeHtml(t('depositAddress'))}</label><div class="native-address-row"><code>${escapeHtml(wallet.address.slice(0, 17))}<wbr>${escapeHtml(wallet.address.slice(17))}</code><button type="button" class="icon-button" data-action="copy-native-deposit" title="${escapeHtml(t('copyAddress'))}" aria-label="${escapeHtml(t('copyAddress'))}">${icon('copy')}</button></div><div class="deposit-warning">${icon('info')}<span>${escapeHtml(t('tronOnly'))}</span></div><p>${escapeHtml(t('depositAutomatic'))}</p><div class="deposit-status">${icon('clock')}<span>${escapeHtml(t('depositWaiting'))}</span></div><a class="text-button" href="${escapeHtml(wallet.explorer)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t('explorer'))}${icon('arrow')}</a></div>` : `<p class="dialog-description">${escapeHtml(t(type === 'withdraw' ? 'withdrawalUnavailable' : 'depositUnavailable'))}</p>`}</div></section></div>`;
   }
   const defaultNetwork = paymentNetwork();
   const config = {
@@ -1034,7 +1044,7 @@ function renderActivityList(limit = 0) {
 }
 
 function renderMePage() {
-  return `<div class="page account-page">${renderVisualHeader(t('meTitle'), t('meSubtitle'))}
+  return `<div class="page account-page">${renderVisualHeader(t('profile'), t('meSubtitle'))}
     <div class="me-layout"><section class="profile-summary"><div class="profile-avatar">${escapeHtml(state.user.name.charAt(0).toUpperCase())}</div><h2>${escapeHtml(state.user.name)}</h2><p>${escapeHtml(state.user.email)}</p><div class="profile-level">${icon('crown')}${escapeHtml(state.user.vipName)}</div><div class="profile-links">${[['wallet', 'wallet', 'walletTitle'], ['company', 'briefcase', 'company'], ['support', 'help', 'support']].map(([view, symbol, label]) => `<button type="button" data-action="view" data-view="${view}">${icon(symbol)}<span>${escapeHtml(t(label))}</span>${icon('chevron')}</button>`).join('')}</div></section>
       <section class="profile-settings"><h2>${escapeHtml(t('accountSettings'))}</h2><form class="profile-form" id="profile-form"><div class="field"><label for="profile-name">${escapeHtml(t('displayName'))}</label><div class="field-control">${icon('user')}<input id="profile-name" name="name" type="text" value="${escapeHtml(state.user.name)}" minlength="2" maxlength="50" required /></div></div><div class="field"><label for="profile-email">${escapeHtml(t('email'))}</label><div class="field-control">${icon('mail')}<input id="profile-email" type="email" value="${escapeHtml(state.user.email)}" disabled /></div></div><div class="profile-actions"><button class="primary-button" type="submit">${icon('save')}${escapeHtml(t('saveChanges'))}</button><button class="secondary-button danger-button" type="button" data-action="logout">${icon('logout')}${escapeHtml(t('logout'))}</button></div></form><p class="account-note">${escapeHtml(t('memberSince'))}: ${escapeHtml(formatDate(state.user.createdAt, true))}<br />${escapeHtml(t('expiresOn'))}: ${escapeHtml(formatDate(state.user.vipExpiresAt, true))}</p></section></div>
   </div>`;
@@ -1097,7 +1107,7 @@ function renderSupportPage() {
 }
 
 function viewTitle() {
-  return t({ home: 'overview', tasks: 'navTasks', wallet: 'walletTitle', vip: 'navVip', team: 'navTeam', me: 'account', company: 'company', support: 'support' }[state.view] || 'overview');
+  return t({ home: 'overview', tasks: 'navTasks', wallet: 'walletTitle', vip: 'navVip', team: 'navTeam', me: 'profile', company: 'company', support: 'support' }[state.view] || 'overview');
 }
 
 function renderPublicPage() {
@@ -1139,16 +1149,16 @@ function renderShell() {
       <span class="nav-section-label">${escapeHtml(t('workspace'))}</span>
       <nav class="desktop-nav" aria-label="${escapeHtml(t('workspace'))}">${navItem('home', t('navHome'), 'home')}${navItem('tasks', t('navTasks'), 'tasks')}${navItem('wallet', t('walletTitle'), 'wallet')}${navItem('vip', t('navVip'), 'crown')}${navItem('team', t('navTeam'), 'users')}</nav>
       <span class="nav-section-label">${escapeHtml(t('platform'))}</span>
-      <nav class="desktop-nav" aria-label="${escapeHtml(t('platform'))}">${navItem('company', t('company'), 'briefcase')}${navItem('support', t('support'), 'help')}${navItem('me', t('account'), 'settings')}</nav>
+      <nav class="desktop-nav" aria-label="${escapeHtml(t('platform'))}">${navItem('company', t('company'), 'briefcase')}${navItem('support', t('support'), 'help')}${navItem('me', t('profile'), 'settings')}</nav>
       <div class="sidebar-bottom"><button class="sidebar-user" type="button" data-action="view" data-view="me"><span class="avatar">${escapeHtml(state.user.name.charAt(0).toUpperCase())}</span><span><strong>${escapeHtml(state.user.name)}</strong><small>${escapeHtml(state.user.email)}</small></span>${icon('chevron')}</button></div>
     </aside>
     <div class="workspace-main">
-      <header class="topbar" ${modal ? 'inert' : ''}><div class="topbar-left"><button class="brand mobile-brand" type="button" data-action="view" data-view="home">${brand()}</button><span class="breadcrumb">TaskMall ${icon('chevron')}<strong>${escapeHtml(viewTitle())}</strong></span></div><div class="topbar-actions"><span class="topbar-date">${escapeHtml(formatDate(new Date(), true))}</span>${languageSelect('top-language')}<button class="icon-button topbar-help" type="button" data-action="help" aria-label="${escapeHtml(t('help'))}" title="${escapeHtml(t('help'))}">${icon('help')}</button><button class="avatar-button" type="button" data-action="view" data-view="me" aria-label="${escapeHtml(t('account'))}" title="${escapeHtml(t('account'))}">${escapeHtml(state.user.name.charAt(0).toUpperCase())}</button><button class="icon-button mobile-menu-toggle" type="button" data-action="mobile-menu" aria-label="${escapeHtml(t('menu'))}" aria-expanded="${state.mobileMenu}">${icon(state.mobileMenu ? 'close' : 'menu')}</button></div></header>
-      ${state.mobileMenu ? `<nav class="mobile-menu" aria-label="${escapeHtml(t('menu'))}">${navItem('wallet', t('walletTitle'), 'wallet')}${navItem('company', t('company'), 'briefcase')}${navItem('support', t('support'), 'help')}</nav>` : ''}
+      <header class="topbar" ${modal ? 'inert' : ''}><div class="topbar-left"><button class="brand mobile-brand" type="button" data-action="view" data-view="home">${brand()}</button><span class="breadcrumb">TaskMall ${icon('chevron')}<strong>${escapeHtml(viewTitle())}</strong></span></div><div class="topbar-actions"><span class="topbar-date">${escapeHtml(formatDate(new Date(), true))}</span>${languageSelect('top-language')}<button class="icon-button topbar-help" type="button" data-action="help" aria-label="${escapeHtml(t('help'))}" title="${escapeHtml(t('help'))}">${icon('help')}</button><button class="avatar-button" type="button" data-action="view" data-view="me" aria-label="${escapeHtml(t('profile'))}" title="${escapeHtml(t('profile'))}">${escapeHtml(state.user.name.charAt(0).toUpperCase())}</button><button class="icon-button mobile-menu-toggle" type="button" data-action="mobile-menu" aria-label="${escapeHtml(t('menu'))}" aria-expanded="${state.mobileMenu}">${icon(state.mobileMenu ? 'close' : 'menu')}</button></div></header>
+      ${state.mobileMenu ? `<nav class="mobile-menu" aria-label="${escapeHtml(t('menu'))}">${navItem('me', t('profile'), 'profile')}${navItem('company', t('company'), 'briefcase')}${navItem('support', t('support'), 'help')}</nav>` : ''}
       <main class="app-content" ${modal ? 'inert' : ''}>${content}</main>
       <footer class="workspace-footer"><span>TaskMall &copy; 2026</span><span>${escapeHtml(t('workspaceStatus'))}</span></footer>
     </div>
-    <nav class="bottom-nav" aria-label="Mobile" ${modal ? 'inert' : ''}>${navItem('home', t('navHome'), 'home', true)}${navItem('tasks', t('navTasks'), 'tasks', true)}${navItem('vip', t('navVip'), 'crown', true)}${navItem('team', t('navTeam'), 'users', true)}${navItem('me', t('navMe'), 'profile', true)}</nav>
+    <nav class="bottom-nav" aria-label="Mobile" ${modal ? 'inert' : ''}>${navItem('home', t('navHome'), 'home', true)}${navItem('tasks', t('navTasks'), 'tasks', true)}${navItem('vip', t('navVip'), 'crown', true)}${navItem('team', t('navTeam'), 'users', true)}${navItem('wallet', t('walletTitle'), 'wallet', true)}</nav>
     ${state.modalTaskId ? renderTaskDialog() : ''}${renderWalletDialog()}${renderHelpDialog()}
   </div>`;
   setDocumentLanguage();
@@ -1170,27 +1180,65 @@ function render() {
   return renderShell();
 }
 
+function applyPaymentConfig(config = {}) {
+  const mode = ['tron-watch-only', 'test-wallet'].includes(config.mode) ? config.mode : 'disabled';
+  if (state.paymentMode !== mode || config.available !== true) state.depositWallet = null;
+  state.paymentMode = mode;
+  state.paymentsAvailable = mode !== 'disabled' && config.available === true;
+  state.withdrawalsAvailable = mode !== 'disabled' && config.withdrawalsAvailable === true;
+  const minimum = Number(config.minimumWithdrawalAmount);
+  state.minimumWithdrawalAmount = Number.isFinite(minimum) && minimum >= 10 ? minimum : 10;
+  paymentNetworks.splice(0, paymentNetworks.length, ...(Array.isArray(config.networks) ? config.networks : []));
+}
+
+async function loadDepositAddress(userId) {
+  if (state.paymentMode !== 'tron-watch-only' || !state.paymentsAvailable || state.depositWallet) return;
+  const wallet = await api('/api/wallet/deposit-address', { method: 'POST', body: {}, timeout: 15_000 });
+  if (state.user?.id === userId && state.paymentMode === 'tron-watch-only' && state.paymentsAvailable) state.depositWallet = wallet;
+}
+
+let walletOpenRequest = 0;
+async function openWallet(type) {
+  if (!state.user || !['deposit', 'withdraw', 'transfer'].includes(type)) return;
+  const requestId = ++walletOpenRequest;
+  const userId = state.user.id;
+  state.walletModal = type;
+  state.modalTaskId = null;
+  state.helpOpen = false;
+  state.walletError = null;
+  state.walletChecking = type !== 'transfer';
+  render();
+  if (!state.walletChecking) return;
+  try {
+    const config = await api('/api/payment-config', { timeout: 15_000 });
+    if (requestId !== walletOpenRequest || state.user?.id !== userId) return;
+    applyPaymentConfig(config);
+    if (type === 'deposit') await loadDepositAddress(userId);
+  } catch (error) {
+    if (requestId === walletOpenRequest && state.user?.id === userId) state.walletError = friendlyError(error);
+  } finally {
+    if (requestId === walletOpenRequest && state.user?.id === userId) {
+      state.walletChecking = false;
+      if (state.walletModal === type) render();
+    }
+  }
+}
+
 async function loadPrivateData() {
   const [tasksData, activityData, vipData, teamData, paymentConfig] = await Promise.all([
     api('/api/tasks'),
     api('/api/activity'),
     api('/api/vips'),
     api('/api/team'),
-    api('/api/payment-config')
+    api('/api/payment-config', { timeout: 15_000 }).catch(() => ({}))
   ]);
   state.tasks = tasksData.tasks;
   state.activities = activityData.activities;
   state.vips = vipData.vips;
   state.team = teamData.team;
-  state.paymentsAvailable = paymentConfig.available;
-  state.paymentMode = paymentConfig.mode || '';
-  state.withdrawalsAvailable = paymentConfig.withdrawalsAvailable ?? paymentConfig.available;
-  state.minimumWithdrawalAmount = paymentConfig.minimumWithdrawalAmount || 10;
-  paymentNetworks.splice(0, paymentNetworks.length, ...paymentConfig.networks);
-  if (state.paymentMode === 'tron-watch-only' && state.paymentsAvailable) {
-    try { state.depositWallet = await api('/api/wallet/deposit-address', { method: 'POST', body: {} }); }
-    catch { state.depositWallet = null; state.paymentsAvailable = false; }
-  } else state.depositWallet = null;
+  applyPaymentConfig(paymentConfig);
+  try { await loadDepositAddress(state.user.id); }
+  catch { state.depositWallet = null; }
 }
 
 async function refreshAfterAction(result = {}) {
@@ -1449,11 +1497,9 @@ app.addEventListener('click', async (event) => {
   }
   if (action === 'buy-vip') buyVip(target.dataset.vipId, target);
   if (action === 'open-wallet') {
-    state.walletModal = target.dataset.walletType;
-    state.modalTaskId = null;
-    state.helpOpen = false;
-    render();
+    await openWallet(target.dataset.walletType);
   }
+  if (action === 'retry-wallet') await openWallet(state.walletModal);
   if (action === 'copy-invite') {
     try {
       await navigator.clipboard.writeText(state.team?.inviteCode || state.user.inviteCode);
@@ -1501,6 +1547,10 @@ app.addEventListener('click', async (event) => {
     state.vips = [];
     state.team = null;
     state.walletModal = null;
+    state.depositWallet = null;
+    state.walletChecking = false;
+    state.walletError = null;
+    walletOpenRequest++;
     state.authMode = 'login';
     history.replaceState(null, '', location.pathname + location.search);
     state.publicView = null;
@@ -1559,9 +1609,8 @@ for (const query of ['(max-height: 740px)', '(max-height: 800px)']) {
 async function init() {
   render();
   try {
-    const paymentConfig = await api('/api/payment-config');
-    state.paymentsAvailable = paymentConfig.available;
-    paymentNetworks.splice(0, paymentNetworks.length, ...paymentConfig.networks);
+    const paymentConfig = await api('/api/payment-config', { timeout: 15_000 }).catch(() => ({}));
+    applyPaymentConfig(paymentConfig);
     const result = await api('/api/me');
     state.user = result.user;
     await loadPrivateData();
@@ -1581,29 +1630,27 @@ init();
 
 let walletRefreshRunning = false;
 setInterval(async () => {
-  if (walletRefreshRunning || !state.user || state.paymentMode !== 'tron-watch-only' || document.hidden || state.busy) return;
+  if (walletRefreshRunning || !state.user || state.paymentMode === 'test-wallet' || document.hidden || state.busy || state.walletChecking) return;
   walletRefreshRunning = true;
   const userId = state.user.id;
+  const dialogRequestId = walletOpenRequest;
   try {
-    const [account, activity, config] = await Promise.all([api('/api/me'), api('/api/activity'), api('/api/payment-config')]);
+    const [account, activity, config] = await Promise.all([api('/api/me', { timeout: 15_000 }), api('/api/activity', { timeout: 15_000 }), api('/api/payment-config', { timeout: 15_000 })]);
     if (state.user?.id !== userId) return;
     const credited = account.user.lockedBalance > state.user.lockedBalance && activity.activities.some(item =>
       item.type === 'deposit' && !state.activities.some(previous => previous.id === item.id));
-    const changed = JSON.stringify(account.user) !== JSON.stringify(state.user) || JSON.stringify(activity.activities) !== JSON.stringify(state.activities)
-      || state.paymentsAvailable !== config.available || state.withdrawalsAvailable !== config.withdrawalsAvailable
-      || state.minimumWithdrawalAmount !== config.minimumWithdrawalAmount;
+    const previousPayments = JSON.stringify([state.paymentsAvailable, state.withdrawalsAvailable, state.paymentMode, state.minimumWithdrawalAmount, state.depositWallet?.address]);
+    const accountChanged = JSON.stringify(account.user) !== JSON.stringify(state.user) || JSON.stringify(activity.activities) !== JSON.stringify(state.activities);
     state.user = account.user;
     state.activities = activity.activities;
-    state.paymentsAvailable = config.available;
-    state.withdrawalsAvailable = config.withdrawalsAvailable;
-    state.minimumWithdrawalAmount = config.minimumWithdrawalAmount || 10;
-    if (!config.available) state.depositWallet = null;
-    else if (!state.depositWallet) {
-      const wallet = await api('/api/wallet/deposit-address', { method: 'POST', body: {} });
-      if (state.user?.id !== userId) return;
-      state.depositWallet = wallet;
-    }
-    if (changed && (!state.walletModal || state.walletModal === 'deposit') && !state.modalTaskId && state.view !== 'me') render();
+    // A dialog opened during this refresh owns its newer payment configuration.
+    if (state.walletChecking || dialogRequestId !== walletOpenRequest) return;
+    applyPaymentConfig(config);
+    try { await loadDepositAddress(userId); } catch { /* Retry address allocation on the next refresh. */ }
+    if (state.user?.id !== userId || state.walletChecking || dialogRequestId !== walletOpenRequest) return;
+    const paymentsChanged = previousPayments !== JSON.stringify([state.paymentsAvailable, state.withdrawalsAvailable, state.paymentMode, state.minimumWithdrawalAmount, state.depositWallet?.address]);
+    if (paymentsChanged) state.walletError = null;
+    if ((accountChanged || paymentsChanged) && (!state.walletModal || state.walletModal === 'deposit' || !document.querySelector('.modal-wallet-form')) && !state.modalTaskId && state.view !== 'me') render();
     if (credited) showToast(t('depositReceived'));
   } catch { /* Network interruptions do not change locally displayed balances. */ }
   finally { walletRefreshRunning = false; }

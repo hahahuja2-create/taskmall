@@ -421,5 +421,58 @@ test('real withdrawal API requires password and operator authorization; mobile a
   await page.locator('.wallet-command-bar [data-wallet-type="withdraw"]').click();
   await page.locator('[data-wallet-form="withdraw"]').waitFor();
   assert.match(await page.locator('#withdrawal-minimum').textContent(), /გატანის მოთხოვნის მინიმუმი: 10 USDT/);
+  await page.keyboard.press('Escape');
+
+  const readyConfig = (await request('/api/payment-config')).body;
+  let paymentConfig = { ...readyConfig, available: false, withdrawalsAvailable: false, networks: [] };
+  let metadataUnavailable = false;
+  let addressUnavailable = true;
+  let addressRequests = 0;
+  await page.route('**/api/payment-config', route => metadataUnavailable
+    ? route.fulfill({ status: 503, json: { error: 'PAYMENTS_UNAVAILABLE' } })
+    : route.fulfill({ json: paymentConfig }));
+  await page.route('**/api/wallet/deposit-address', route => {
+    addressRequests++;
+    return addressUnavailable ? route.fulfill({ status: 503, json: { error: 'DEPOSITS_UNAVAILABLE' } }) : route.continue();
+  });
+  await page.reload();
+  await page.locator('.wallet-command-bar').waitFor();
+  paymentConfig = readyConfig;
+  await page.locator('.wallet-command-bar [data-wallet-type="withdraw"]').click();
+  await page.locator('[data-wallet-form="withdraw"]').waitFor();
+  assert.equal(addressRequests, 0, 'Withdrawal checks do not depend on allocating a deposit address');
+  await page.keyboard.press('Escape');
+
+  metadataUnavailable = true;
+  await page.locator('.wallet-command-bar [data-wallet-type="withdraw"]').click();
+  await page.locator('[data-action="retry-wallet"]').waitFor();
+  assert.equal(await page.locator('.modal-wallet-form').count(), 0, 'A failed fresh status check must not expose a cached form');
+  metadataUnavailable = false;
+  await page.locator('[data-action="retry-wallet"]').click();
+  await page.locator('[data-wallet-form="withdraw"]').waitFor();
+  await page.keyboard.press('Escape');
+
+  await page.reload();
+  await page.locator('.wallet-command-bar').waitFor();
+  assert.equal(addressRequests, 1);
+  await page.locator('.wallet-command-bar [data-wallet-type="withdraw"]').click();
+  await page.locator('[data-wallet-form="withdraw"]').waitFor();
+  await page.keyboard.press('Escape');
+  await page.locator('.wallet-command-bar [data-wallet-type="deposit"]').click();
+  await page.locator('[data-action="retry-wallet"]').waitFor();
+  assert.equal(await page.locator('.deposit-qr').count(), 0);
+  addressUnavailable = false;
+  await page.locator('[data-action="retry-wallet"]').click();
+  await page.locator('.deposit-qr').waitFor();
+  assert.equal(await page.locator('.native-address-row code').textContent(), (await request('/api/wallet/deposit-address', {}, customer)).body.address);
+  await page.keyboard.press('Escape');
+
+  for (const config of [{ ...readyConfig, withdrawalsAvailable: false }, { ...readyConfig, withdrawalsAvailable: undefined }]) {
+    paymentConfig = config;
+    await page.locator('.wallet-command-bar [data-wallet-type="withdraw"]').click();
+    await page.locator('[data-action="retry-wallet"]').waitFor();
+    assert.equal(await page.locator('[data-wallet-form="withdraw"]').count(), 0, 'Withdrawal admission needs an explicit ready flag');
+    await page.keyboard.press('Escape');
+  }
   assert.deepEqual(uiErrors, []);
 });

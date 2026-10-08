@@ -47,8 +47,22 @@ overlapping zero-downtime deployments are incompatible with this writer model.
 A graceful stop releases the lock; a disconnected MySQL connection also loses
 the lock and the application fails closed instead of reconnecting blindly.
 
-Retain a persistent volume for the public deposit-wallet configuration and
-operator token. MySQL does not provision a wallet, replace a signer, or enable
+Retain a persistent volume for the operator token. The signed public deposit
+configuration can be mounted using `TRON_WALLET_PUBLIC_FILE`, or supplied as the
+`TRON_WALLET_PUBLIC_JSON` service variable. JSON takes precedence and must contain
+only the original signed public configuration; invalid input never falls back
+to a different wallet. Set `TRON_AUTO_WALLET=0` on the web host.
+
+Deposit readiness requires `TRON_DEPOSITS_ENABLED=1`, a server-side
+`TRONGRID_API_KEY`, that verified public configuration, transactional storage and
+a successful chain scan. Withdrawal admission additionally requires
+`TASKMALL_OPERATOR_ENABLED=1`, a protected persistent operator token and
+`TRON_MANUAL_WITHDRAWALS_ENABLED=1`. Enabling admission only reserves requests;
+it does not send funds. Operator endpoints remain loopback-only. A private
+tunnel/access path and a payout rehearsal are still required from Railway.
+Check `/api/payment-config` on the actual deployment, not just local settings.
+
+MySQL does not provision a wallet, replace a signer, or enable
 Mainnet withdrawals/collection. Never deploy the mnemonic, private key, Windows
 vault, backup file, or backup password to the public web service.
 

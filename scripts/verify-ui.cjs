@@ -64,7 +64,7 @@ async function main() {
     }
     async function view(name) {
       const scope = (await page.locator('.sidebar').isVisible()) ? '.sidebar' : '.bottom-nav';
-      if (['wallet', 'company', 'support'].includes(name) && scope === '.bottom-nav') {
+      if (['me', 'company', 'support'].includes(name) && scope === '.bottom-nav') {
         await page.locator('[data-action="mobile-menu"]').click();
         await page.locator('.mobile-menu [data-view="' + name + '"]').click();
       } else await page.locator(scope + ' .' + (scope === '.sidebar' ? 'nav-button' : 'bottom-nav-button') + '[data-view="' + name + '"]').click();
@@ -192,6 +192,12 @@ async function main() {
     }
     await page.setViewportSize({ width: 390, height: 844 });
     await view('wallet');
+    assert.equal(await page.locator('.bottom-nav [data-view="me"]').count(), 0);
+    assert.equal(await page.locator('.bottom-nav [data-view="wallet"]').textContent(), 'Wallet');
+    assert.equal(await page.locator('.bottom-nav [data-view="wallet"]').getAttribute('aria-current'), 'page');
+    await page.locator('.topbar [data-language-select]').selectOption('ka');
+    assert.equal(await page.locator('.bottom-nav [data-view="wallet"]').textContent(), 'საფულე');
+    await page.locator('.topbar [data-language-select]').selectOption('en');
     await page.locator('[data-wallet-type="deposit"]').click();
     await screenshot('wallet-dialog-mobile');
     await page.keyboard.press('Escape');

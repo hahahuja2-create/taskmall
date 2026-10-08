@@ -1,11 +1,11 @@
 'use strict';
 
-const fs = require('node:fs/promises');
-const { validateWallet, deriveAddress, decodeTransfers, TronGrid } = require('./tron');
+const { deriveAddress, decodeTransfers, TronGrid } = require('./tron');
+const { loadPublicWallet } = require('./wallet-config');
 
 class DepositWatcher {
-  constructor({ store, walletFile, treasury, apiKey, exclusive, credit, client, interval = 30_000 }) {
-    Object.assign(this, { store, walletFile, treasury, exclusive, credit, interval });
+  constructor({ store, walletFile, walletJson, treasury, apiKey, exclusive, credit, client, interval = 30_000 }) {
+    Object.assign(this, { store, walletFile, walletJson, treasury, exclusive, credit, interval });
     this.client = client || new TronGrid(apiKey);
     this.hasApiKey = Boolean(apiKey || client);
     this.wallet = null;
@@ -24,8 +24,7 @@ class DepositWatcher {
   async poll() {
     if (this.stopped || !this.hasApiKey) { this.status = 'api-key-required'; return; }
     try {
-      const raw = await fs.readFile(this.walletFile, 'utf8');
-      const wallet = validateWallet(JSON.parse(raw), this.treasury);
+      const wallet = await loadPublicWallet(this);
       await this.exclusive(() => this.store.registerWallet(wallet));
       this.wallet = wallet;
       const height = await this.client.solidHeight();

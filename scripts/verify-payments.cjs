@@ -11,6 +11,7 @@ const { BRANCH_PATH, USDT_CONTRACT, TRANSFER_TOPIC, deriveAddress, addressHex, u
   proofMessage, validateWallet, decodeTransfers, TronGrid } = require('../payments/tron');
 const { PaymentStore } = require('../payments/store');
 const { DepositWatcher } = require('../payments/watcher');
+const { loadPublicWallet } = require('../payments/wallet-config');
 
 const root = path.resolve(__dirname, '..');
 const treasury = 'TZBZHkdrwv6xrGzRR9a1WqStf3oEmtjDvw';
@@ -74,6 +75,24 @@ test('receipt decoding trusts only solidified successful official USDT logs', ()
   const fake = structuredClone(info);
   fake.log.forEach(log => { log.address = addressHex(treasury).slice(2); });
   assert.deepEqual(decodeTransfers(fake, txid, 1000), []);
+});
+
+test('public wallet service variable is verified and never falls back on invalid input', async t => {
+  const directory = await temporary(t);
+  cleanup(t, directory);
+  const walletFile = path.join(directory, 'wallet.json');
+  const config = await configuration();
+  await fs.writeFile(walletFile, JSON.stringify(config));
+  assert.equal((await loadPublicWallet({ walletFile, treasury })).xpub, xpub);
+  assert.equal((await loadPublicWallet({ walletFile: path.join(directory, 'missing.json'), walletJson: JSON.stringify(config), treasury })).xpub, xpub);
+  for (const walletJson of ['{invalid-json', 'null', JSON.stringify({ ...config, proof: 'invalid' }),
+    JSON.stringify({ ...config, xpub: branch.extendedKey }), JSON.stringify({ ...config, privateKey: 'must-not-be-accepted' }),
+    JSON.stringify({ ...config, mnemonic }), JSON.stringify({ ...config, treasuryAddress: deriveAddress(xpub, 3) }), ' '.repeat(32_769)]) {
+    await assert.rejects(loadPublicWallet({ walletFile, walletJson, treasury }), error => {
+      assert.equal(error.message, 'Invalid public deposit wallet configuration.');
+      return true;
+    });
+  }
 });
 
 test('SQLite allocation, atomic credits, rollback, balanced journal and restart', async t => {
@@ -188,11 +207,10 @@ test('real API wiring allocates separate addresses and credits verified receipt 
   const directory = await temporary(t);
   const walletFile = path.join(directory, 'wallet.json');
   const fixtureFile = path.join(directory, 'chain.json');
-  await fs.writeFile(walletFile, JSON.stringify(await configuration()));
   await fs.writeFile(fixtureFile, JSON.stringify({ history: {}, receipts: {} }));
   const { url } = await startProcess(t, 'server.js', { NODE_ENV: 'test', HOST: '127.0.0.1', PORT: '0',
     PUBLIC_ORIGIN: '', TASKMALL_TEST_WALLET: '', TASKMALL_DATA_DIR: directory, TASKMALL_SQLITE: '1', TRON_DEPOSITS_ENABLED: '1',
-    TRON_WALLET_PUBLIC_FILE: walletFile, TRONGRID_API_KEY: 'fixture-only', TRON_TEST_POLL_MS: '100', TASKMALL_TRON_FIXTURE: fixtureFile }, true);
+    TRON_WALLET_PUBLIC_FILE: walletFile, TRON_WALLET_PUBLIC_JSON: JSON.stringify(await configuration()), TRONGRID_API_KEY: 'fixture-only', TRON_TEST_POLL_MS: '100', TASKMALL_TRON_FIXTURE: fixtureFile }, true);
   cleanup(t, directory);
   const request = async (route, body, cookie) => {
     const response = await fetch(url + route, { method: body ? 'POST' : 'GET',

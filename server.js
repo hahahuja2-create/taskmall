@@ -32,6 +32,8 @@ const TRON_DEPOSITS = !TEST_WALLET && process.env.TRON_DEPOSITS_ENABLED === '1';
 if (TRON_DEPOSITS && !USE_SQLITE && !USE_MYSQL) throw new Error('TRON deposits require transactional database storage.');
 if (IS_PRODUCTION && process.env.TRON_AUTO_WALLET === '1') throw new Error('Provision the protected wallet locally, then deploy only its verified public configuration with TRON_AUTO_WALLET=0.');
 const WALLET_FILE = process.env.TRON_WALLET_PUBLIC_FILE || path.join(__dirname, 'config', 'tron-wallet-public.json');
+const WALLET_JSON = process.env.TRON_WALLET_PUBLIC_JSON || '';
+if (WALLET_JSON && process.env.TRON_AUTO_WALLET === '1') throw new Error('Public wallet variables cannot be combined with local wallet generation.');
 const TREASURY = process.env.TRON_TREASURY_ADDRESS || require('./config/tron-payment-setup.json').treasuryAddress;
 let paymentStore;
 let depositWatcher;
@@ -237,7 +239,7 @@ async function loadDatabase() {
         await provisionWallet({ walletFile: WALLET_FILE, treasury: TREASURY, vaultFile: process.env.TRON_LOCAL_VAULT_FILE });
       }
       const { DepositWatcher } = require('./payments/watcher');
-      depositWatcher = new DepositWatcher({ store: paymentStore, walletFile: WALLET_FILE,
+      depositWatcher = new DepositWatcher({ store: paymentStore, walletFile: WALLET_FILE, walletJson: WALLET_JSON,
         treasury: TREASURY, apiKey: process.env.TRONGRID_API_KEY, exclusive,
         interval: process.env.NODE_ENV === 'test' ? Number(process.env.TRON_TEST_POLL_MS || 30_000) : 30_000,
         async credit(event) {
@@ -583,7 +585,7 @@ async function handleApi(req, res, url) {
       withdrawalsAvailable: storageHealthy && MANUAL_WITHDRAWALS && Boolean(operatorToken) && Boolean(depositWatcher?.ready()), status: depositWatcher?.status || 'starting',
       minimumWithdrawalAmount: MINIMUM_WITHDRAWAL_USDT,
       networks: storageHealthy && depositWatcher?.ready() ? [{ id: 'trc20', label: 'USDT TRC20' }] : [] });
-    return json(res, 200, { available: TEST_WALLET, minimumWithdrawalAmount: MINIMUM_WITHDRAWAL_USDT,
+    return json(res, 200, { available: TEST_WALLET, withdrawalsAvailable: TEST_WALLET, mode: TEST_WALLET ? 'test-wallet' : 'disabled', minimumWithdrawalAmount: MINIMUM_WITHDRAWAL_USDT,
       networks: TEST_WALLET ? Object.entries(paymentNetworks).map(([id, network]) => ({ id, ...network })) : [] });
   }
 

@@ -132,7 +132,7 @@ test('VIP pricing, expiry, renewals, daily limits and payment safeguards', async
 
   await t.test('unconfirmed money cannot be credited or withdrawn', async () => {
     const config = await app.request('/api/payment-config');
-    assert.deepEqual(config.body, { available: false, minimumWithdrawalAmount: 10, networks: [] });
+    assert.deepEqual(config.body, { available: false, withdrawalsAvailable: false, mode: 'disabled', minimumWithdrawalAmount: 10, networks: [] });
     assert.equal((await app.request('/api/wallet/deposit', { amount: 10000, network: 'trc20' }, cookie)).status, 503);
     assert.equal((await app.request('/api/wallet/withdraw', { amount: 5, network: 'trc20', wallet: 'TestWalletAddress00000' }, cookie)).status, 503);
     const account = await app.request('/api/me', undefined, cookie);
