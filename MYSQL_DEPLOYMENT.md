@@ -23,10 +23,12 @@ existing chain validation and signing controls are unchanged.
 
 ## Railway
 
-In the **TaskMall application service**, add a reference variable:
+In the **TaskMall application service**, configure a database-scoped application
+account as the protected `MYSQL_APP_USER` and `MYSQL_APP_PASSWORD` variables,
+then add a reference variable:
 
 ```text
-MYSQL_URL=${{MySQL.MYSQL_URL}}
+MYSQL_URL=mysql://${{MYSQL_APP_USER}}:${{MYSQL_APP_PASSWORD}}@${{MySQL.MYSQLHOST}}:${{MySQL.MYSQLPORT}}/${{MySQL.MYSQLDATABASE}}
 ```
 
 Replace `MySQL` with the actual database service name. Use the private/internal
@@ -72,9 +74,12 @@ vault, backup file, or backup password to the public web service.
 
 ## Credentials And TLS
 
-The root connection supplied in chat is not committed. Rotate that exposed
-password in Railway and update dependent services. Use a separate application
-account rather than root. The current automatic startup migrations require DDL
+The root connection supplied in chat is not committed. During the Railway
+cutover its exposed password was rotated, both administrator identities and
+service variables were synchronized, and the new connection was verified.
+The application uses a separate database-scoped account rather than root, with
+SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX and REFERENCES permissions.
+The current automatic startup migrations require DDL
 privileges as well as data privileges; a separate migration identity and
 read/write-only runtime identity remain a hardening step before public launch.
 
