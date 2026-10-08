@@ -72,6 +72,25 @@ async function start(t, options = {}) {
   };
 }
 
+test('invite codes link new registrations to the correct team and reject unknown referrals', async t => {
+  const app = await start(t);
+  const inviter = await app.request('/api/auth/signup', { email: 'inviter@taskmall.test', password });
+  assert.equal(inviter.status, 201);
+  const code = inviter.body.user.inviteCode;
+  const cookie = inviter.headers.get('set-cookie').split(';')[0];
+  const invalid = await app.request('/api/auth/signup', { email: 'friend@taskmall.test', password, referral: 'UNKNOWNCODE' });
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.body.error, 'INVALID_REFERRAL');
+  const friend = await app.request('/api/auth/signup', { email: 'friend@taskmall.test', password, referral: ' ' + code.toLowerCase() + ' ' });
+  assert.equal(friend.status, 201);
+  const team = await app.request('/api/team', undefined, cookie);
+  assert.equal(team.body.team.inviteCode, code);
+  assert.equal(team.body.team.count, 1);
+  assert.equal(team.body.team.members[0].id, friend.body.user.id);
+  const saved = JSON.parse(await fs.readFile(app.database, 'utf8'));
+  assert.equal(saved.users.find(user => user.id === friend.body.user.id).referredBy, code);
+});
+
 test('VIP pricing, expiry, renewals, daily limits and payment safeguards', async t => {
   const retained = fixture('retained@taskmall.test');
   retained.vipStartedAt = retained.createdAt;

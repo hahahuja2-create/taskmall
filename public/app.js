@@ -18,6 +18,11 @@ const languages = [
 
 const paymentNetworks = [];
 
+function inviteCodeFromUrl() {
+  const code = (new URL(location.href).searchParams.get('ref') || '').trim().toUpperCase();
+  return /^[A-Z0-9]{1,24}$/.test(code) ? code : '';
+}
+
 const state = {
   lang: localStorage.getItem('taskmall_language') || 'ka',
   user: null,
@@ -37,6 +42,7 @@ const state = {
   mobileMenu: false,
   activityPage: 1,
   authMode: 'signup',
+  referralCode: inviteCodeFromUrl(),
   modalTaskId: null,
   walletModal: null,
   walletChecking: false,
@@ -147,6 +153,10 @@ const en = {
   teamSubtitle: 'Share your invite code and track your direct team.',
   inviteCode: 'Invite code',
   copyCode: 'Copy code',
+  inviteLink: 'Invite link',
+  copyLink: 'Copy link',
+  linkCopied: 'Invite link copied.',
+  copyFailed: 'Could not copy. Please try again.',
   teamMembers: 'Members',
   teamVolume: 'Team VIP volume',
   teamEarned: 'Team task earnings',
@@ -281,6 +291,10 @@ const copy = {
     teamSubtitle: 'გააზიარე მოწვევის კოდი და აკონტროლე direct team.',
     inviteCode: 'მოწვევის კოდი',
     copyCode: 'კოდის კოპირება',
+    inviteLink: 'მოწვევის ბმული',
+    copyLink: 'ბმულის კოპირება',
+    linkCopied: 'მოწვევის ბმული დაკოპირდა.',
+    copyFailed: 'კოპირება ვერ შესრულდა. სცადე ხელახლა.',
     teamMembers: 'წევრები',
     teamVolume: 'Team locked volume',
     teamEarned: 'Team task earnings',
@@ -607,7 +621,7 @@ function icon(name, className = '') {
     flame: 'Flame', trophy: 'Trophy', crown: 'Crown', clock: 'Clock3', list: 'List',
     scan: 'ScanLine', wallet: 'Wallet', chart: 'ChartNoAxesCombined', calendar: 'CalendarDays',
     deposit: 'ArrowDownToLine', withdraw: 'ArrowUpFromLine', transfer: 'ArrowLeftRight',
-    briefcase: 'Building2', gift: 'Gift', copy: 'Copy', close: 'X', logout: 'LogOut',
+    briefcase: 'Building2', gift: 'Gift', copy: 'Copy', link: 'Link', close: 'X', logout: 'LogOut',
     save: 'Save', info: 'Info', search: 'Search', menu: 'Menu', download: 'Download',
     chevron: 'ChevronRight', globe: 'Globe2', shield: 'ShieldCheck', settings: 'Settings2', retry: 'RefreshCw'
   };
@@ -704,7 +718,7 @@ function renderAuth() {
             <div class="field"><label for="auth-password">${escapeHtml(t('password'))}</label><div class="field-control">${icon('lock')}<input id="auth-password" name="password" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}" minlength="8" maxlength="128" placeholder="${escapeHtml(t('passwordPlaceholder'))}" required /><button class="password-toggle" type="button" data-action="toggle-password" data-target="auth-password" aria-label="${escapeHtml(t('showPassword'))}" title="${escapeHtml(t('showPassword'))}">${icon('eye')}</button></div></div>
             ${signup ? `
               <div class="field"><label for="auth-confirm">${escapeHtml(t('confirmPassword'))}</label><div class="field-control">${icon('lock')}<input id="auth-confirm" name="confirm" type="password" autocomplete="new-password" minlength="8" maxlength="128" placeholder="${escapeHtml(t('passwordPlaceholder'))}" required /><button class="password-toggle" type="button" data-action="toggle-password" data-target="auth-confirm" aria-label="${escapeHtml(t('showPassword'))}" title="${escapeHtml(t('showPassword'))}">${icon('eye')}</button></div></div>
-              <div class="field"><label for="auth-referral">${escapeHtml(t('referral'))} <span class="optional">${escapeHtml(t('referralPlaceholder'))}</span></label><div class="field-control">${icon('gift')}<input id="auth-referral" name="referral" type="text" maxlength="24" placeholder="TM..." /></div></div>
+              <div class="field"><label for="auth-referral">${escapeHtml(t('referral'))} <span class="optional">${escapeHtml(t('referralPlaceholder'))}</span></label><div class="field-control">${icon('gift')}<input id="auth-referral" name="referral" type="text" maxlength="24" autocomplete="off" spellcheck="false" value="${escapeHtml(state.referralCode)}" placeholder="TM..." /></div></div>
             ` : ''}
             <p class="form-message" id="auth-message" role="alert"></p>
             <button class="primary-button auth-submit" type="submit">${escapeHtml(t(signup ? 'createAccount' : 'signInAction'))}${icon('arrow')}</button>
@@ -994,17 +1008,24 @@ function renderVipPage() {
     }).join('')}</div></div>`;
 }
 
+function inviteUrl(code) {
+  const url = new URL('/', location.origin);
+  url.searchParams.set('ref', code);
+  return url.href;
+}
+
 function renderTeamPage() {
   const team = state.team || { inviteCode: state.user.inviteCode, count: 0, totalLocked: 0, totalEarned: 0, members: [] };
+  const link = inviteUrl(team.inviteCode);
   return `
     <div class="page">
       ${renderVisualHeader(t('teamTitle'), t('teamSubtitle'), '/assets/taskmall-team-office.png', 'TaskMall Team')}
       <section class="team-grid">
         <article class="invite-card">
           <span class="stat-icon purple">${icon('users')}</span>
-          <span>${escapeHtml(t('inviteCode'))}</span>
-          <strong>${escapeHtml(team.inviteCode)}</strong>
-          <button class="secondary-button" type="button" data-action="copy-invite">${icon('copy')} ${escapeHtml(t('copyCode'))}</button>
+          <div class="invite-details"><span>${escapeHtml(t('inviteCode'))}</span><strong data-invite-code>${escapeHtml(team.inviteCode)}</strong></div>
+          <div class="invite-link-row"><span>${escapeHtml(t('inviteLink'))}</span><a data-invite-link href="${escapeHtml(link)}" target="_blank" rel="noopener">${escapeHtml(link)}</a></div>
+          <div class="invite-actions"><button class="secondary-button" type="button" data-action="copy-invite" title="${escapeHtml(t('copyCode'))}">${icon('copy')} ${escapeHtml(t('copyCode'))}</button><button class="secondary-button" type="button" data-action="copy-invite-link" title="${escapeHtml(t('copyLink'))}">${icon('link')} ${escapeHtml(t('copyLink'))}</button></div>
         </article>
         <article class="stat-card"><span class="stat-icon">${icon('users')}</span><div><strong class="stat-value">${team.count}</strong><span class="stat-label">${escapeHtml(t('teamMembers'))}</span></div></article>
         <article class="stat-card"><span class="stat-icon green">${icon('lock')}</span><div><strong class="stat-value">${escapeHtml(formatUsdt(team.totalLocked))}</strong><span class="stat-label">${escapeHtml(t('teamVolume'))}</span></div></article>
@@ -1269,7 +1290,11 @@ async function handleAuthSubmit(form) {
     });
     state.user = result.user;
     state.view = 'home';
-    history.replaceState(null, '', '#home');
+    state.referralCode = '';
+    const url = new URL(location.href);
+    url.searchParams.delete('ref');
+    url.hash = 'home';
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
     await loadPrivateData();
     render();
   } catch (error) {
@@ -1384,7 +1409,25 @@ function exportHistory() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+async function copyInvite(value) {
+  try { await navigator.clipboard.writeText(value); return true; }
+  catch {
+    const previousFocus = document.activeElement;
+    const field = document.createElement('textarea');
+    field.value = value;
+    field.readOnly = true;
+    field.className = 'clipboard-helper';
+    field.tabIndex = -1;
+    field.setAttribute('aria-hidden', 'true');
+    document.body.append(field);
+    try { field.select(); return document.execCommand('copy'); }
+    catch { return false; }
+    finally { field.remove(); previousFocus?.focus({ preventScroll: true }); }
+  }
+}
+
 app.addEventListener('input', (event) => {
+  if (event.target.id === 'auth-referral') state.referralCode = event.target.value;
   if (event.target.name === 'amount' && event.target.closest('[data-wallet-form="withdraw"]')) {
     const output = event.target.form.querySelector('[data-withdraw-net]');
     if (output) {
@@ -1500,13 +1543,11 @@ app.addEventListener('click', async (event) => {
     await openWallet(target.dataset.walletType);
   }
   if (action === 'retry-wallet') await openWallet(state.walletModal);
-  if (action === 'copy-invite') {
-    try {
-      await navigator.clipboard.writeText(state.team?.inviteCode || state.user.inviteCode);
-      showToast(t('copied'));
-    } catch {
-      showToast(state.team?.inviteCode || state.user.inviteCode);
-    }
+  if (action === 'copy-invite' || action === 'copy-invite-link') {
+    const code = state.team?.inviteCode || state.user.inviteCode;
+    const link = action === 'copy-invite-link';
+    const copied = await copyInvite(link ? inviteUrl(code) : code);
+    showToast(t(copied ? link ? 'linkCopied' : 'copied' : 'copyFailed'));
   }
   if (action === 'copy-deposit-address') {
     const form = target.closest('form');

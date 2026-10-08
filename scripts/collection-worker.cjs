@@ -7,12 +7,13 @@ const { HDNodeWallet } = require('ethers');
 const { BRANCH_PATH, tronAddress, validateWallet, TronGrid } = require('../payments/tron');
 const { defaultVaultFile, readVault } = require('../payments/vault');
 const { loadOperatorToken, operatorClient } = require('../payments/operator');
+const { railwayOperatorClient } = require('../payments/railway-operator');
 const { CollectionWorker, SignerJournal } = require('../payments/collector');
 const { trxBalance } = require('../payments/transactions');
 const { prepareCollectionActivation, workerStatusFile, writeWorkerStatus } = require('../payments/collection-activation');
 
 async function main() {
-  const options = new Set(['--run', '--fuel-address', '--setup', '--preflight', '--copy-backup', '--local-backup']);
+  const options = new Set(['--run', '--fuel-address', '--setup', '--preflight', '--copy-backup', '--local-backup', '--railway']);
   if (process.argv.slice(2).some(argument => !options.has(argument))) throw new Error('INVALID_WORKER_OPTIONS');
   const running = process.argv.includes('--run');
   const fuelAddress = process.argv.includes('--fuel-address');
@@ -24,8 +25,9 @@ async function main() {
     || (localBackup && (!guided || running || copyBackup))) throw new Error('INVALID_WORKER_OPTIONS');
   if ((running || guided) && (!process.stdin.isTTY || !process.stdout.isTTY)) throw new Error('PRIVATE_TERMINAL_REQUIRED');
   const data = process.env.TASKMALL_DATA_DIR || path.join(__dirname, '..', 'data');
-  const token = await loadOperatorToken(process.env.TASKMALL_OPERATOR_TOKEN_FILE || path.join(data, 'operator.token'));
-  const operator = operatorClient(process.env.TASKMALL_OPERATOR_ORIGIN || 'http://127.0.0.1:' + (process.env.PORT || 4173), token);
+  const operator = process.argv.includes('--railway') ? railwayOperatorClient() : operatorClient(
+    process.env.TASKMALL_OPERATOR_ORIGIN || 'http://127.0.0.1:' + (process.env.PORT || 4173),
+    await loadOperatorToken(process.env.TASKMALL_OPERATOR_TOKEN_FILE || path.join(data, 'operator.token')));
   const treasury = process.env.TRON_TREASURY_ADDRESS || require('../config/tron-payment-setup.json').treasuryAddress;
   const walletFile = process.env.TRON_WALLET_PUBLIC_FILE || path.join(__dirname, '..', 'config', 'tron-wallet-public.json');
   const wallet = validateWallet(JSON.parse(await fs.readFile(walletFile, 'utf8')), treasury);

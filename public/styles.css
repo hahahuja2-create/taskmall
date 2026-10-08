@@ -302,9 +302,14 @@ input:disabled { color: #8a9690; }
 .team-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 24px; }
 .invite-card { display: flex; align-items: flex-start; flex-direction: column; gap: 12px; border: 1px solid #dbe7de; border-radius: 7px; padding: 23px; background: #eff5f0; }
 .invite-card > .stat-icon { background: #e1ece4; }
-.invite-card > span:not(.stat-icon) { color: #92a497; font-size: 10px; }
-.invite-card > strong { font-size: 22px; color: var(--green); font-weight: 500; overflow-wrap: anywhere; }
-.invite-card button { min-height: 33px; font-size: 10px; }
+.invite-details, .invite-link-row { min-width: 0; width: 100%; display: grid; gap: 6px; }
+.invite-details > span, .invite-link-row > span { color: #627a68; font-size: 10px; }
+.invite-details > strong { font-size: 22px; color: var(--green); font-weight: 500; overflow-wrap: anywhere; }
+.invite-link-row > a { font-size: 11px; line-height: 1.7; color: var(--green); overflow-wrap: anywhere; }
+.invite-actions { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+.invite-card button { min-height: 38px; font-size: 11px; flex: 1 1 120px; white-space: normal; }
+.invite-card button .icon { flex-shrink: 0; }
+.clipboard-helper { position: fixed; top: 0; left: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; pointer-events: none; }
 .stat-card { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 21px; padding: 23px; background: #fff; border: 1px solid var(--line); border-radius: 7px; min-width: 0; }
 .stat-card:nth-child(3) .stat-icon { color: var(--blue); background: var(--blue-soft); }
 .stat-card:nth-child(4) .stat-icon { color: var(--amber); background: var(--amber-soft); }
@@ -630,10 +635,11 @@ input:disabled { color: #8a9690; }
   .table-transaction .icon { width: 13px; height: 13px; }
   .payment-notice { font-size: 9px; }
   .team-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .invite-card { grid-column: 1 / -1; padding: 18px; gap: 10px; display: grid; grid-template-columns: 35px 1fr auto; align-items: center; }
-  .invite-card .stat-icon { grid-row: 1 / 3; width: 32px; height: 32px; }
-  .invite-card > strong { font-size: 20px; grid-column: 2; }
-  .invite-card button { grid-row: 1 / 3; grid-column: 3; font-size: 0; width: 34px; padding: 8px; min-height: 34px; }
+  .invite-card { grid-column: 1 / -1; padding: 18px; gap: 12px; display: grid; grid-template-columns: 35px minmax(0, 1fr); align-items: center; }
+  .invite-card .stat-icon { width: 32px; height: 32px; }
+  .invite-details > strong { font-size: 20px; }
+  .invite-link-row, .invite-actions { grid-column: 1 / -1; }
+  .invite-card button { min-height: 42px; padding: 9px 10px; }
   .invite-card button .icon { width: 16px; height: 16px; }
   .team-grid .stat-card { padding: 15px; gap: 14px; }
   .team-grid .stat-card:last-child { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: flex-start; }

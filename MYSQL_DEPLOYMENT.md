@@ -68,6 +68,20 @@ it does not send funds. Operator endpoints remain loopback-only. A private
 tunnel/access path and a payout rehearsal are still required from Railway.
 Check `/api/payment-config` on the actual deployment, not just local settings.
 
+The protected Windows collection worker can reach this primary ledger with
+`collections:railway-check` / `collections:railway-enable`. Configure the fixed
+project, application service and environment IDs in its local environment.
+The Railway CLI must already be authenticated. Each SSH request verifies the
+remote service identity and invokes its existing loopback-only operator API;
+the operator token stays on the host. Private keys stay on Windows. The check
+command is read-only; the enable command retains private recovery verification,
+treasury confirmation and explicit network spending limits. This is not an
+always-on hosted signer and will stop processing if the computer is offline.
+`payments:automation-check` reports queues and confirmed balances without
+decrypting a vault, signing, allocating addresses or broadcasting transactions.
+Automatic withdrawals still require a separately provisioned protected signer
+and payout policy; this collector does not implement automatic payout approval.
+
 MySQL does not provision a wallet, replace a signer, or enable
 Mainnet withdrawals/collection. Never deploy the mnemonic, private key, Windows
 vault, backup file, or backup password to the public web service.

@@ -174,6 +174,61 @@ async function main() {
     await page.locator('.topbar [data-language-select]').selectOption('en');
     await page.locator('.page-heading h1').filter({ hasText: 'Overview' }).waitFor();
 
+    await view('team');
+    const inviteCode = await page.locator('[data-invite-code]').textContent();
+    const inviteLink = await page.locator('[data-invite-link]').getAttribute('href');
+    assert.equal(inviteLink, url + '/?ref=' + inviteCode);
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.locator('[data-action="copy-invite"]').click();
+    await page.waitForFunction(code => navigator.clipboard.readText().then(value => value === code), inviteCode);
+    await page.locator('[data-action="copy-invite-link"]').click();
+    await page.waitForFunction(link => navigator.clipboard.readText().then(value => value === link), inviteLink);
+    await page.evaluate(() => {
+      navigator.clipboard.writeText = async () => { throw new Error('Clipboard denied'); };
+      window.originalExecCommand = document.execCommand;
+      document.execCommand = command => {
+        window.fallbackClipboard = document.querySelector('.clipboard-helper')?.value;
+        return command === 'copy';
+      };
+    });
+    await page.locator('[data-action="copy-invite-link"]').click();
+    await page.waitForFunction(link => window.fallbackClipboard === link, inviteLink);
+    assert.equal(await page.locator('.clipboard-helper').count(), 0);
+    await page.evaluate(() => { document.execCommand = () => false; });
+    await page.locator('[data-action="copy-invite"]').click();
+    await page.locator('.toast').filter({ hasText: 'Could not copy.' }).waitFor();
+    assert.equal(await page.locator('.clipboard-helper').count(), 0);
+
+    const friendContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    try {
+      const friend = await friendContext.newPage();
+      await friend.goto(url + '/?ref=' + encodeURIComponent('\"><img src=x onerror=alert(1)>'));
+      await friend.locator('#auth-referral').waitFor();
+      assert.equal(await friend.locator('#auth-referral').inputValue(), '');
+      await friend.goto(inviteLink.replace(inviteCode, inviteCode.toLowerCase()));
+      await friend.locator('#auth-referral').waitFor();
+      assert.equal(await friend.locator('#auth-referral').inputValue(), inviteCode);
+      await friend.locator('[data-mode="login"]').click();
+      await friend.locator('[data-mode="signup"]').click();
+      assert.equal(await friend.locator('#auth-referral').inputValue(), inviteCode);
+      await friend.locator('#auth-referral').fill('TMEDITED');
+      await friend.locator('[data-language-select]').selectOption('en');
+      assert.equal(await friend.locator('#auth-referral').inputValue(), 'TMEDITED');
+      await friend.reload();
+      await friend.locator('#auth-referral').waitFor();
+      assert.equal(await friend.locator('#auth-referral').inputValue(), inviteCode);
+      await friend.locator('#auth-email').fill('friend@taskmall.test');
+      await friend.locator('#auth-password').fill('PreviewPass2026');
+      await friend.locator('#auth-confirm').fill('PreviewPass2026');
+      await friend.locator('.auth-submit').click();
+      await friend.locator('.dashboard-page').waitFor();
+      assert.equal(new URL(friend.url()).searchParams.has('ref'), false);
+    } finally { await friendContext.close(); }
+    await page.reload();
+    await view('team');
+    assert.equal(await page.locator('.team-list .activity-item').count(), 1);
+    assert.match(await page.locator('.team-list').textContent(), /friend/);
+
     for (const size of [[1920, 1080], [1440, 900], [1366, 768], [1024, 768], [390, 844], [375, 667], [360, 640]]) {
       await page.setViewportSize({ width: size[0], height: size[1] });
       for (const name of ['home', 'tasks', 'vip', 'team', 'wallet', 'me', 'company', 'support']) {
