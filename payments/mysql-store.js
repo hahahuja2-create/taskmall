@@ -125,9 +125,13 @@ class MysqlPaymentStore {
   async projectUser(user) {
     const existing = await this.sql.prepare('SELECT id FROM users WHERE id=? OR email=? OR invite_code=?').all(user.id, user.email, user.inviteCode);
     if (existing.some(record => record.id !== user.id)) throw new Error('Account identity conflicts with stored data.');
-    await this.execute(upsert('users', ['id','email','name','password_salt','password_hash','invite_code','referred_by','created_at','updated_at'], 'id'),
-      [user.id, user.email, user.name, user.passwordSalt, user.passwordHash, user.inviteCode, user.referredBy || null, milliseconds(user.createdAt), Date.now()]);
     const balances = ['lockedBalance','withdrawBalance','reservedBalance','earnedTotal','withdrawnTotal','withdrawFeeTotal'].map(field => units(user[field] ?? 0).toString());
+    const userBalances = balances.slice(0, 2).map(balance => {
+      const value = BigInt(balance);
+      return `${value / 1_000_000n}.${(value % 1_000_000n).toString().padStart(6, '0')}`;
+    });
+    await this.execute(upsert('users', ['id','email','name','password_salt','password_hash','invite_code','referred_by','created_at','updated_at','vip_balance','withdrawal_balance'], 'id'),
+      [user.id, user.email, user.name, user.passwordSalt, user.passwordHash, user.inviteCode, user.referredBy || null, milliseconds(user.createdAt), Date.now(), ...userBalances]);
     await this.execute(upsert('wallets', ['user_id','locked_units','withdraw_units','reserved_units','earned_units','withdrawn_units','fee_units'], 'user_id'), [user.id, ...balances]);
     await this.execute(upsert('memberships', ['user_id','vip_id','started_at','expires_at'], 'user_id'),
       [user.id, user.vipId, milliseconds(user.vipStartedAt), milliseconds(user.vipExpiresAt)]);

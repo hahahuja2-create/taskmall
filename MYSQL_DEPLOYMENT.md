@@ -11,6 +11,13 @@ Use MySQL 8.0.16+ with InnoDB, `utf8mb4` and database collation
 Financial amounts are integer micro-USDT in `DECIMAL(30,0)`, not SQL floats.
 TRON addresses and idempotency keys use case-sensitive ASCII columns.
 
+The `users` table also exposes `vip_balance` and `withdrawal_balance` as exact
+`DECIMAL(20,6)` USDT values. They mirror `wallets.locked_units` and
+`wallets.withdraw_units`; existing values are backfilled by migration 003, and
+application operations update both tables in the same transaction. `wallets`,
+the state snapshot and journal remain the financial source of truth. Do not
+edit either user balance column directly to credit an account.
+
 The schema includes users, wallets, memberships, VIP plans, tasks, activities,
 daily task completions, persistent hashed sessions, deposit addresses, deposits,
 withdrawals, collections, outgoing transactions, payout intents, payment audit,

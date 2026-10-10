@@ -51,8 +51,8 @@ async function migrate(connection) {
         if (existing.checksum !== checksum) throw new Error('Applied database migration has changed.');
         continue;
       }
-      // Migrations contain only simple DDL statements. MySQL DDL commits implicitly;
-      // each statement must be restartable after a partially completed migration.
+      // MySQL DDL commits implicitly, so migrations must tolerate restarting
+      // after any statement without changing previously stored financial amounts.
       for (const statement of source.split(';').map(value => value.trim()).filter(Boolean)) {
         await connection.query(statement);
       }

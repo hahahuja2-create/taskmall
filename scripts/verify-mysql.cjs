@@ -10,6 +10,7 @@ const { spawn } = require('node:child_process');
 const { options, connect, migrate } = require('../database/mysql');
 const { MysqlPaymentStore } = require('../payments/mysql-store');
 const { OutgoingLedger } = require('../payments/outgoing');
+const { units, amount } = require('../payments/tron');
 const { vipPlans, tasks } = require('../platform-catalog');
 
 test('database URLs are validated and public connections cannot silently disable TLS', () => {
@@ -54,6 +55,39 @@ function user() {
     withdrawFeeTotal: 0, activities: [] };
 }
 
+test('user balances mirror wallet micro-units as exact USDT decimals', async () => {
+  const writes = [];
+  const connection = { on() {}, execute: async (query, parameters) => {
+    if (query.startsWith('SELECT')) return [[], []];
+    writes.push({ query, parameters });
+    return [{ affectedRows: 1 }, []];
+  } };
+  const store = new MysqlPaymentStore(connection);
+  for (const [vip, withdrawal] of [['0', '0.000001'], ['12.345678', '99.999999'], ['100000000', '100000000']]) {
+    writes.length = 0;
+    await store.projectUser({ ...user(), lockedBalance: vip, withdrawBalance: withdrawal });
+    const account = writes.find(write => write.query.startsWith('INSERT INTO users '));
+    const wallet = writes.find(write => write.query.startsWith('INSERT INTO wallets '));
+    assert.match(account.query, /vip_balance,withdrawal_balance/);
+    assert.deepEqual(account.parameters.slice(-2), [Number(vip).toFixed(6), Number(withdrawal).toFixed(6)]);
+    assert.deepEqual(wallet.parameters.slice(1, 3), [units(vip).toString(), units(withdrawal).toString()]);
+  }
+});
+
+test('user balance projection rolls back when the matching wallet write fails', async () => {
+  const events = [];
+  const connection = { on() {}, query: async () => [[{ owner: 7, current: 7 }]],
+    beginTransaction: async () => { events.push('begin'); }, commit: async () => { events.push('commit'); },
+    rollback: async () => { events.push('rollback'); }, execute: async query => {
+      if (query.startsWith('SELECT')) return [[], []];
+      if (query.startsWith('INSERT INTO users ')) { events.push('users'); return [{ affectedRows: 1 }, []]; }
+      throw new Error('Fixture wallet write failure');
+    } };
+  const store = new MysqlPaymentStore(connection);
+  await assert.rejects(() => store.transaction(() => store.projectUser(user())), /wallet write failure/);
+  assert.deepEqual(events, ['begin', 'users', 'rollback']);
+});
+
 async function start(t, env, directory) {
   const child = spawn(process.execPath, ['server.js'], { cwd: path.resolve(__dirname, '..'), windowsHide: true, stdio: 'pipe',
     env: { ...process.env, ...env, NODE_ENV: 'test', TASKMALL_MYSQL_TEST: '1', PORT: '0', HOST: '127.0.0.1', PUBLIC_ORIGIN: '',
@@ -95,12 +129,27 @@ test('MySQL migrations, atomic accounting, uniqueness, writer lease, sessions an
     });
     await admin.query(`CREATE DATABASE \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`);
     created = true;
+    const account = user();
+    account.lockedBalance = 12.345678;
+    const legacy = await connect(env);
+    try {
+      const core = await fs.readFile(path.join(__dirname, '../database/migrations/001-core.sql'), 'utf8');
+      for (const statement of core.split(';').map(value => value.trim()).filter(Boolean)) await legacy.query(statement);
+      await legacy.execute('INSERT INTO users(id,email,name,password_salt,password_hash,invite_code,referred_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
+        [account.id, account.email, account.name, account.passwordSalt, account.passwordHash, account.inviteCode, null, Date.now(), Date.now()]);
+      await legacy.execute('INSERT INTO wallets VALUES (?,?,?,?,?,?,?)', [account.id, '12345678', '100000000', '0', '0', '0', '0']);
+    } finally { await legacy.end(); }
     store = await MysqlPaymentStore.open(env);
     await migrate(store.connection);
+    const backfilled = await store.sql.prepare('SELECT vip_balance,withdrawal_balance FROM users WHERE id=?').get(account.id);
+    assert.equal(backfilled.vip_balance, '12.345678');
+    assert.equal(backfilled.withdrawal_balance, '100.000000');
+    const balanceMigration = await fs.readFile(path.join(__dirname, '../database/migrations/003-user-balances.sql'), 'utf8');
+    for (const statement of balanceMigration.split(';').map(value => value.trim()).filter(Boolean)) await store.connection.query(statement);
+    assert.deepEqual(await store.sql.prepare('SELECT vip_balance,withdrawal_balance FROM users WHERE id=?').get(account.id), backfilled);
     await store.catalog(vipPlans, tasks);
     console.log('MySQL fixture: schema and catalog verified.');
     await assert.rejects(() => MysqlPaymentStore.open(env), /one database writer/);
-    const account = user();
     const state = { users: [account], tasks };
     await store.save(state, 'isolated-test-opening');
     assert.equal((await store.sql.prepare('SELECT duration_days FROM vip_plans WHERE id=?').get('vip11')).duration_days, 365);
@@ -108,11 +157,21 @@ test('MySQL migrations, atomic accounting, uniqueness, writer lease, sessions an
     const allocated = await store.allocate(account.id, () => destination);
     assert.equal((await store.allocate(account.id, () => { throw new Error('Must reuse address'); })).address, allocated.address);
     const event = { txid: '1'.repeat(64), logIndex: 0, to: allocated.address, units: '10000001', blockNumber: 999, timestamp: Date.now() };
-    const apply = state => { state.users[0].lockedBalance = 10.000001; };
+    const apply = state => { state.users[0].lockedBalance = amount(units(state.users[0].lockedBalance) + BigInt(event.units)); };
     assert.equal(await store.credit(event, state, apply), true);
     assert.equal(await store.credit(event, state, () => { throw new Error('Must not credit twice'); }), false);
     await assert.rejects(() => store.credit({ ...event, txid: '2'.repeat(64) }, structuredClone(state), () => { throw new Error('Fixture rollback'); }), /rollback/);
     assert.equal((await store.deposits(account.id)).length, 1);
+    assert.equal((await store.sql.prepare('SELECT vip_balance FROM users WHERE id=?').get(account.id)).vip_balance, '22.345679');
+    const beforeFailure = await store.sql.prepare('SELECT vip_balance,withdrawal_balance FROM users WHERE id=?').get(account.id);
+    const invalidState = structuredClone(state);
+    invalidState.users[0].lockedBalance = 50;
+    invalidState.users[0].withdrawBalance = 200;
+    invalidState.users[0].vipId = 'nonexistent-plan';
+    await assert.rejects(() => store.save(invalidState, 'isolated-rollback-fixture'));
+    assert.deepEqual(await store.sql.prepare('SELECT vip_balance,withdrawal_balance FROM users WHERE id=?').get(account.id), beforeFailure);
+    assert.equal((await store.sql.prepare('SELECT locked_units FROM wallets WHERE user_id=?').get(account.id)).locked_units, '22345679');
+    assert.equal((await store.state()).users[0].lockedBalance, 22.345679);
     const ledger = new OutgoingLedger(store, destination);
     const key = crypto.randomUUID();
     const request = await ledger.request(state, account.id, { key, destination, gross: '10.000001' });
@@ -129,6 +188,9 @@ test('MySQL migrations, atomic accounting, uniqueness, writer lease, sessions an
     const wallet = await store.sql.prepare('SELECT * FROM wallets WHERE user_id=?').get(account.id);
     assert.equal(wallet.reserved_units, '0');
     assert.equal(wallet.withdrawn_units, '9000001');
+    const userBalances = await store.sql.prepare('SELECT vip_balance,withdrawal_balance FROM users WHERE id=?').get(account.id);
+    assert.equal(userBalances.vip_balance, '22.345679');
+    assert.equal(userBalances.withdrawal_balance, '89.999999');
     const [unbalanced] = await store.connection.query('SELECT batch FROM journal GROUP BY batch HAVING SUM(delta_units) <> 0');
     assert.deepEqual(unbalanced, []);
     await assert.rejects(() => store.transaction(() => store.execute('UPDATE wallets SET withdraw_units=-1 WHERE user_id=?', [account.id])));
@@ -139,6 +201,7 @@ test('MySQL migrations, atomic accounting, uniqueness, writer lease, sessions an
     await store.close();
     store = await MysqlPaymentStore.open(env);
     assert.equal((await store.state()).users[0].withdrawnTotal, 9.000001);
+    assert.deepEqual(await store.sql.prepare('SELECT vip_balance,withdrawal_balance FROM users WHERE id=?').get(account.id), userBalances);
     assert.equal((await store.session(token, 10000)).userId, account.id);
     await store.revokeSession(token);
     assert.equal(await store.session(token, 10000), null);
@@ -161,6 +224,12 @@ test('MySQL migrations, atomic accounting, uniqueness, writer lease, sessions an
     const restoredUser = (await restored.json()).user;
     assert.equal(restoredUser.id, accountCreated.user.id);
     assert.equal(restoredUser.withdrawBalance, 0.3);
+    const inspection = await connect(env);
+    try {
+      const [[balances]] = await inspection.execute('SELECT vip_balance,withdrawal_balance FROM users WHERE id=?', [restoredUser.id]);
+      assert.equal(balances.vip_balance, '0.000000');
+      assert.equal(balances.withdrawal_balance, '0.300000');
+    } finally { await inspection.end(); }
     assert.equal((await fetch(second.address + '/api/health')).status, 200);
     await second.stop();
   });
